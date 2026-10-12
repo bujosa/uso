@@ -1,13 +1,35 @@
 import AppKit
 import SwiftUI
 
+@MainActor
+final class PanelPresentation: ObservableObject {
+    @Published private(set) var isPresented = false
+    @Published private(set) var escapeRequest = 0
+
+    func prepare(reduceMotion: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { isPresented = reduceMotion }
+    }
+
+    func reveal() { isPresented = true }
+    func escape() { escapeRequest += 1 }
+}
+
 struct PanelView: View {
     @EnvironmentObject private var store: UsageStore
+    @EnvironmentObject private var presentation: PanelPresentation
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var selectedID: String?
+    let dismiss: () -> Void
+    let openSettings: () -> Void
+    let layoutChanged: (Bool) -> Void
+
+    private var reduceMotion: Bool { systemReduceMotion || !store.preferences.animatesPanel }
 
     private var selected: ProviderSnapshot? {
         guard let selectedID else { return nil }
-        return store.providers.first { $0.id == selectedID }
+        return store.visibleProviders.first { $0.id == selectedID }
     }
 
     var body: some View {
@@ -16,13 +38,16 @@ struct PanelView: View {
             if let provider = selected {
                 DetailView(provider: provider)
                     .transition(.opacity)
-            } else if store.providers.isEmpty {
-                Text(store.isRefreshing ? "Reading accounts…" : "No data yet.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 28)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if store.visibleProviders.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(store.providers.isEmpty ? "Reading accounts…" : "Choose what to show")
+                        .font(.subheadline.weight(.medium))
+                    Text("Manage your accounts and display choices in Settings.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Open Settings", action: openSettings)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 list
                     .transition(.opacity)
@@ -32,15 +57,7 @@ struct PanelView: View {
             }
         }
         .frame(width: Glass.width)
-        .animation(.smooth(duration: 0.22), value: selectedID)
-        .background {
-            Button(action: hide) { Color.clear }
-                .keyboardShortcut(.escape, modifiers: [])
-                .disabled(selectedID != nil)
-                .opacity(0)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: selectedID)
         .background {
             ZStack {
                 GlassBackground()
@@ -57,37 +74,60 @@ struct PanelView: View {
         .clipShape(RoundedRectangle(cornerRadius: Glass.radius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Glass.radius, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5)
+                .strokeBorder(Color.white.opacity(presentation.isPresented ? 0.16 : 0.42), lineWidth: 0.5)
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: Glass.radius, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [.clear, Color.white.opacity(0.65), .clear],
+                        startPoint: UnitPoint(x: presentation.isPresented ? 1.4 : -0.8, y: -0.2),
+                        endPoint: UnitPoint(x: presentation.isPresented ? 2.4 : 0.2, y: 1.2)
+                    ), lineWidth: 1
+                )
+                .opacity(reduceMotion ? 0 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.7), value: presentation.isPresented)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .scaleEffect(reduceMotion || presentation.isPresented ? 1 : 0.96, anchor: .top)
+        .offset(y: reduceMotion || presentation.isPresented ? 0 : -10)
+        .animation(reduceMotion ? nil : .spring(duration: 0.42, bounce: 0.22), value: presentation.isPresented)
         .task {
-            for window in NSApp.windows where window.identifier?.rawValue != "uso-panel" {
-                window.isOpaque = false
-                window.backgroundColor = .clear
-            }
             store.activate()
             if selectedID == nil, let id = Self.requestedDetail,
-               store.providers.contains(where: { $0.id == id }) {
+                store.visibleProviders.contains(where: { $0.id == id })
+            {
                 selectedID = id
             }
         }
-        .onChange(of: store.providers.map(\.id)) { _, _ in
+        .onChange(of: store.visibleProviders) { _, _ in
+            if let selectedID, !store.visibleProviders.contains(where: { $0.id == selectedID }) {
+                self.selectedID = nil
+            }
             if selectedID == nil, let id = Self.requestedDetail,
-               store.providers.contains(where: { $0.id == id }) {
+                store.visibleProviders.contains(where: { $0.id == id })
+            {
                 selectedID = id
             }
-            resizePreview()
+            requestLayout(animated: false)
         }
         .onChange(of: selectedID) { _, _ in
-            resizePreview()
+            requestLayout(animated: true)
+        }
+        .onChange(of: presentation.escapeRequest) { _, _ in
+            if selectedID == nil { dismiss() } else { selectedID = nil }
         }
     }
 
     private var list: some View {
         VStack(spacing: 0) {
-            ForEach(Array(store.providers.enumerated()), id: \.element.id) { index, provider in
+            ForEach(Array(store.visibleProviders.enumerated()), id: \.element.id) { index, provider in
                 Button {
                     if provider.id == "claude", provider.note?.hasPrefix("Claude Code is signed in") == true {
                         store.allowClaudeKeychain()
+                    } else if provider.id == "muse", provider.note?.hasPrefix("Muse CLI is signed in") == true {
+                        store.allowMuseKeychain()
                     } else {
                         selectedID = provider.id
                     }
@@ -95,7 +135,12 @@ struct PanelView: View {
                     ProviderRow(provider: provider)
                 }
                 .buttonStyle(RowButtonStyle())
-                if index < store.providers.count - 1 {
+                .opacity(reduceMotion || presentation.isPresented ? 1 : 0)
+                .offset(y: reduceMotion || presentation.isPresented ? 0 : 12)
+                .animation(
+                    reduceMotion ? nil : .spring(duration: 0.38, bounce: 0.12).delay(Double(index) * 0.035),
+                    value: presentation.isPresented)
+                if index < store.visibleProviders.count - 1 {
                     Rectangle()
                         .fill(Color.white.opacity(0.08))
                         .frame(height: 0.5)
@@ -122,7 +167,6 @@ struct PanelView: View {
                     .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(.escape, modifiers: [])
             } else {
                 Text("Usage")
                     .font(.subheadline.weight(.semibold))
@@ -153,6 +197,7 @@ struct PanelView: View {
             .disabled(store.isRefreshing)
             .keyboardShortcut("r")
             .help("Refresh")
+            .accessibilityLabel("Refresh usage")
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
@@ -166,16 +211,25 @@ struct PanelView: View {
                 .frame(height: 0.5)
             HStack {
                 if store.showsLoginToggle {
-                    Toggle("Open at login", isOn: Binding(
-                        get: { store.opensAtLogin },
-                        set: { store.setOpensAtLogin($0) }
-                    ))
+                    Toggle(
+                        "Open at login",
+                        isOn: Binding(
+                            get: { store.opensAtLogin },
+                            set: { store.setOpensAtLogin($0) }
+                        )
+                    )
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button(action: openSettings) {
+                    Image(systemName: "gearshape").font(.system(size: 12))
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .accessibilityLabel("Settings")
+                .help("Settings (⌘,)")
                 Button("Quit") {
                     AppExit.requested = true
                     NSApp.terminate(nil)
@@ -197,24 +251,14 @@ struct PanelView: View {
 
     private static var requestedDetail: String? {
         guard let index = CommandLine.arguments.firstIndex(of: "--detail"),
-              CommandLine.arguments.indices.contains(index + 1)
+            CommandLine.arguments.indices.contains(index + 1)
         else { return nil }
         return CommandLine.arguments[index + 1]
     }
 
-    private func hide() {
-        NSApp.keyWindow?.orderOut(nil)
-    }
-
-    private func resizePreview() {
+    private func requestLayout(animated: Bool) {
         DispatchQueue.main.async {
-            guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "uso-panel" }),
-                  let content = window.contentView
-            else { return }
-            content.invalidateIntrinsicContentSize()
-            let intrinsic = content.intrinsicContentSize.height
-            let height = intrinsic > 1 ? intrinsic : content.fittingSize.height
-            window.setContentSize(NSSize(width: Glass.width, height: max(height, 180)))
+            layoutChanged(animated)
         }
     }
 }
@@ -293,7 +337,7 @@ private struct ProviderRow: View {
     }
 
     private var showsBarLabels: Bool {
-        provider.id == "cursor" || provider.id == "claude" || provider.id == "openai"
+        provider.id == "cursor" || provider.id == "claude" || provider.id == "openai" || provider.id == "muse"
     }
 
     private var listBars: [MeterBar] {
@@ -306,6 +350,7 @@ private struct ProviderRow: View {
             return provider.bars
                 .filter { order.contains($0.id) }
                 .sorted { (order.firstIndex(of: $0.id) ?? 9) < (order.firstIndex(of: $1.id) ?? 9) }
+        case "muse": return provider.bars
         case "openai":
             return provider.bars.sorted { lhs, rhs in
                 (lhs.label == "Week" ? 1 : 0) < (rhs.label == "Week" ? 1 : 0)
@@ -337,12 +382,13 @@ private struct ProviderRow: View {
             return provider.note ?? "No data"
         }
         var bits: [String] = []
-        let plan = provider.plan.split(separator: "·").first
+        let plan =
+            provider.plan.split(separator: "·").first
             .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
         if !plan.isEmpty, plan != "Local" {
             bits.append(plan)
         }
-        let labeled = provider.id == "cursor" || provider.id == "claude" || provider.id == "openai"
+        let labeled = showsBarLabels
         if !labeled, let hot = provider.bars.dropFirst().first(where: { $0.usedPercent >= 99 }) {
             bits.append("\(hot.label) maxed")
         } else if !labeled, let detail = provider.bars.first?.detail, !detail.isEmpty {
@@ -388,7 +434,22 @@ private struct DetailView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
+                } else if provider.id == "muse", note.hasPrefix("Muse CLI is signed in") {
+                    Button("Allow access") { store.allowMuseKeychain() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                } else if provider.id == "muse-app" {
+                    Button("Open Muse") { MuseAppIntegration.open() }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
                 }
+            }
+
+            if provider.id == "muse", let readAt = provider.readAt {
+                Text(
+                    "Last reading at \(readAt.formatted(date: .omitted, time: .shortened)). Checks are limited to every 5 minutes."
+                )
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             if !provider.bars.isEmpty {
@@ -481,11 +542,16 @@ private struct DetailMeter: View {
 }
 
 private struct Meter: View {
+    @EnvironmentObject private var store: UsageStore
+    @EnvironmentObject private var presentation: PanelPresentation
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     let used: Double
     let accent: Color
 
+    private var reduceMotion: Bool { systemReduceMotion || !store.preferences.animatesPanel }
+
     var body: some View {
-        let clamped = min(max(used, 0), 100)
+        let clamped = reduceMotion || presentation.isPresented ? min(max(used, 0), 100) : 0
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule()
@@ -496,6 +562,11 @@ private struct Meter: View {
             }
         }
         .frame(height: 6)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.55).delay(0.10), value: presentation.isPresented)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: used)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Used")
+        .accessibilityValue(Format.percent(used))
     }
 
     private var fill: Color {
@@ -543,9 +614,12 @@ enum Accent {
     static func color(for id: String) -> Color {
         switch id {
         case "grok": return Color(red: 0.62, green: 0.54, blue: 0.42)
+        case "grok-bot": return Color(red: 0.70, green: 0.58, blue: 0.86)
         case "cursor": return Color(red: 0.45, green: 0.62, blue: 0.98)
         case "openai": return Color(red: 0.36, green: 0.72, blue: 0.48)
         case "claude": return Color(red: 0.86, green: 0.48, blue: 0.34)
+        case "muse": return Color(red: 0.32, green: 0.57, blue: 0.98)
+        case "muse-app": return Color(red: 0.24, green: 0.67, blue: 0.92)
         case "opencode": return Color(red: 0.28, green: 0.70, blue: 0.70)
         default: return Color.primary
         }

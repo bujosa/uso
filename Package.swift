@@ -11,5 +11,6 @@ let package = Package(
                 .linkedLibrary("sqlite3"),
             ]
         ),
+        .testTarget(name: "UsoTests", dependencies: ["Uso"]),
     ]
 )

@@ -134,6 +134,15 @@ enum Format {
         }
     }
 
+    static func claudePlan(subscription: String, tier: String?) -> String {
+        guard !subscription.isEmpty else { return "Claude" }
+        let name = planName(subscription)
+        guard subscription.lowercased() == "max", let tier else { return name }
+        if tier == "default_claude_max_20x" { return "\(name) (20×)" }
+        if tier == "default_claude_max_5x" { return "\(name) (5×)" }
+        return name
+    }
+
     static func modelName(_ raw: String) -> String {
         if let data = raw.data(using: .utf8),
            let object = JSON.object(from: data),
@@ -172,6 +181,12 @@ enum Format {
 }
 
 enum HTTP {
+    struct Response: Sendable {
+        var status: Int
+        var data: Data
+        var retryAfter: String? = nil
+    }
+
     final class RedirectBlocker: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         func urlSession(
             _ session: URLSession,
@@ -189,6 +204,8 @@ enum HTTP {
         configuration.timeoutIntervalForRequest = 20
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         return URLSession(configuration: configuration, delegate: blocker, delegateQueue: nil)
     }()
 
@@ -198,6 +215,16 @@ enum HTTP {
         headers: [String: String] = [:],
         body: Data? = nil
     ) async -> (Int, Data)? {
+        guard let response = await sendResponse(url, method: method, headers: headers, body: body) else { return nil }
+        return (response.status, response.data)
+    }
+
+    static func sendResponse(
+        _ url: URL,
+        method: String = "GET",
+        headers: [String: String] = [:],
+        body: Data? = nil
+    ) async -> Response? {
         var request = URLRequest(url: url)
         request.httpMethod = method
         for (field, value) in headers {
@@ -206,8 +233,8 @@ enum HTTP {
         request.httpBody = body
         do {
             let (data, response) = try await session.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return (status, data)
+            let http = response as? HTTPURLResponse
+            return Response(status: http?.statusCode ?? 0, data: data, retryAfter: http?.value(forHTTPHeaderField: "Retry-After"))
         } catch {
             return nil
         }
@@ -237,14 +264,14 @@ enum KeychainRead {
 }
 
 enum Keychain {
-    static func password(service: String, prompt: Bool) -> KeychainRead {
-        SecKeychainSetUserInteractionAllowed(prompt)
+    static func password(service: String, account: String? = nil, prompt: Bool) -> KeychainRead {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
+        if let account { query[kSecAttrAccount as String] = account }
         if !prompt {
             let context = LAContext()
             context.interactionNotAllowed = true

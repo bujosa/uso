@@ -11,6 +11,9 @@ final class UsageStore: ObservableObject {
     @Published var updatedAt: Date?
     @Published var opensAtLogin = false
     @Published var loginMessage: String?
+    @Published private(set) var preferences: UsagePreferences
+
+    private let defaults: UserDefaults
 
     private var timer: Timer?
     private var ticker: Timer?
@@ -18,6 +21,49 @@ final class UsageStore: ObservableObject {
     private var tickerIndex = 0
     private var task: Task<Void, Never>?
     private let service = UsageService()
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        preferences = UsagePreferences.load(from: defaults)
+    }
+
+    var visibleProviders: [ProviderSnapshot] {
+        providers.filter { preferences.showsInPanel($0.id) }
+    }
+
+    func setShownInPanel(_ shown: Bool, id: String) {
+        if shown { preferences.hiddenPanelProviders.remove(id) } else { preferences.hiddenPanelProviders.insert(id) }
+        savePreferences()
+    }
+
+    func setShownInMenu(_ shown: Bool, id: String) {
+        if shown { preferences.hiddenMenuProviders.remove(id) } else { preferences.hiddenMenuProviders.insert(id) }
+        savePreferences()
+    }
+
+    func setAnimatesPanel(_ enabled: Bool) {
+        preferences.animatesPanel = enabled
+        savePreferences()
+    }
+
+    func showDetectedOnly() {
+        let missing = Set(ProviderAccount.all.map(\.id)).subtracting(providers.filter { $0.tone == .ready }.map(\.id))
+        preferences.hiddenPanelProviders = missing
+        preferences.hiddenMenuProviders = missing
+        savePreferences()
+    }
+
+    func showAllSources() {
+        preferences.hiddenPanelProviders = []
+        preferences.hiddenMenuProviders = []
+        savePreferences()
+    }
+
+    private func savePreferences() {
+        preferences.save(to: defaults)
+        hero = Pressure.hero(from: visibleProviders)
+        syncTicker()
+    }
 
     var showsLoginToggle: Bool {
         Bundle.main.bundleURL.pathExtension == "app"
@@ -58,7 +104,7 @@ final class UsageStore: ObservableObject {
     }
 
     private func syncTicker() {
-        tickerLines = MenuTicker.lines(from: providers.filter { $0.tone == .ready })
+        tickerLines = MenuTicker.lines(from: providers.filter { preferences.showsInMenu($0.id) })
         guard !tickerLines.isEmpty else {
             menuTitle = "Usage"
             return
@@ -86,12 +132,9 @@ final class UsageStore: ObservableObject {
     }
 
     private func apply(_ snapshot: ProviderSnapshot, keeping baseline: [ProviderSnapshot]) {
-        var item = snapshot
-        if item.tone != .ready, let previous = baseline.first(where: { $0.id == item.id && $0.tone == .ready }) {
-            var kept = previous
-            kept.warning = item.note ?? "Couldn't refresh."
-            item = kept
-        }
+        var fresh = snapshot
+        if fresh.tone == .ready, fresh.readAt == nil { fresh.readAt = Date() }
+        let item = fresh.keepingLastReading(baseline.first { $0.id == snapshot.id })
         var next = providers
         if let index = next.firstIndex(where: { $0.id == item.id }) {
             next[index] = item
@@ -100,7 +143,7 @@ final class UsageStore: ObservableObject {
         }
         next.sort { order($0.id) < order($1.id) }
         providers = next
-        let ready = providers.filter { $0.tone == .ready }
+        let ready = visibleProviders.filter { $0.tone == .ready }
         hero = Pressure.hero(from: ready)
         syncTicker()
         updatedAt = Date()
@@ -109,10 +152,13 @@ final class UsageStore: ObservableObject {
     private func order(_ id: String) -> Int {
         switch id {
         case "grok": return 0
-        case "cursor": return 1
-        case "openai": return 2
-        case "claude": return 3
-        case "opencode": return 4
+        case "grok-bot": return 1
+        case "cursor": return 2
+        case "openai": return 3
+        case "claude": return 4
+        case "muse": return 5
+        case "muse-app": return 6
+        case "opencode": return 7
         default: return 9
         }
     }
@@ -123,6 +169,18 @@ final class UsageStore: ObservableObject {
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             let snapshot = await self.service.claudeWithPrompt()
+            self.apply(snapshot, keeping: self.providers.filter { $0.tone != .loading })
+            self.isRefreshing = false
+            self.task = nil
+        }
+    }
+
+    func allowMuseKeychain() {
+        guard task == nil else { return }
+        isRefreshing = true
+        task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let snapshot = await self.service.museWithPrompt()
             self.apply(snapshot, keeping: self.providers.filter { $0.tone != .loading })
             self.isRefreshing = false
             self.task = nil
