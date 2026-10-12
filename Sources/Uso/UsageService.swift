@@ -1,6 +1,9 @@
 import Foundation
 
 struct UsageService: Sendable {
+    private let claudeClient = ClaudeUsageClient()
+    private let museClient = MuseUsageClient()
+
     func load() async -> [ProviderSnapshot] {
         var snapshots: [ProviderSnapshot] = []
         for await snapshot in loadIncremental() {
@@ -14,9 +17,12 @@ struct UsageService: Sendable {
             Task {
                 await withTaskGroup(of: ProviderSnapshot.self) { group in
                     group.addTask { await self.grok() }
+                    group.addTask { await self.grokBot() }
                     group.addTask { await self.cursor() }
                     group.addTask { await self.openai() }
                     group.addTask { await self.claude() }
+                    group.addTask { await self.museClient.load() }
+                    group.addTask { MuseAppIntegration.load() }
                     group.addTask { await self.opencode() }
                     for await snapshot in group {
                         continuation.yield(snapshot)
@@ -27,7 +33,7 @@ struct UsageService: Sendable {
         }
     }
 
-    private static let order = ["grok": 0, "cursor": 1, "openai": 2, "claude": 3, "opencode": 4]
+    private static let order = ["grok": 0, "grok-bot": 1, "cursor": 2, "openai": 3, "claude": 4, "muse": 5, "muse-app": 6, "opencode": 7]
 
     // MARK: Grok
 
@@ -176,6 +182,32 @@ struct UsageService: Sendable {
         }
     }
 
+    // MARK: Grok Bot
+
+    private func grokBot() async -> ProviderSnapshot {
+        let database = Paths.file("Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+        guard let rows = SQLite.query(path: database.path, sql: "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'"),
+              let token = rows.first?["value"], !token.isEmpty else {
+            return .problem(id: "grok-bot", name: "Grok Bot", tone: .missing,
+                            note: "Open Cursor and sign in with the account you use in Grok Bot.")
+        }
+        guard let response = await HTTP.send(
+            URL(string: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus")!,
+            method: "POST", headers: [
+                "Authorization": "Bearer \(token)", "Content-Type": "application/json",
+                "Connect-Protocol-Version": "1", "x-cursor-client-type": "grok-bot", "x-ghost-mode": "true",
+            ], body: Data("{}".utf8)
+        ) else {
+            return .problem(id: "grok-bot", name: "Grok Bot", tone: .failed, note: "Can't reach Grok Bot.")
+        }
+        guard response.0 == 200, let body = JSON.object(from: response.1) else {
+            let tone: ProviderTone = response.0 == 401 || response.0 == 403 ? .missing : .failed
+            return .problem(id: "grok-bot", name: "Grok Bot", tone: tone,
+                            note: tone == .missing ? "Cursor session rejected. Sign in again in Cursor." : "Couldn't read Grok Bot usage (HTTP \(response.0)).")
+        }
+        return QuotaParsing.grokBot(body)
+    }
+
     // MARK: Cursor
 
     private func cursor() async -> ProviderSnapshot {
@@ -313,7 +345,7 @@ struct UsageService: Sendable {
               let access = JSON.string(JSON.value(tokens, key: "access_token")),
               !access.isEmpty
         else {
-            return .problem(id: "openai", name: "OpenAI", tone: .missing, note: "No Codex session. Run codex login.")
+            return .problem(id: "openai", name: "Codex", tone: .missing, note: "No Codex session. Run codex login.")
         }
         var headers = [
             "Accept": "application/json",
@@ -324,12 +356,12 @@ struct UsageService: Sendable {
             headers["ChatGPT-Account-Id"] = account
         }
         guard let response = await HTTP.send(URL(string: "https://chatgpt.com/backend-api/wham/usage")!, headers: headers) else {
-            return .problem(id: "openai", name: "OpenAI", tone: .failed, note: "Can't reach OpenAI.")
+            return .problem(id: "openai", name: "Codex", tone: .failed, note: "Can't reach Codex.")
         }
         guard response.0 == 200, let body = JSON.object(from: response.1) else {
             let tone: ProviderTone = (response.0 == 401 || response.0 == 403) ? .missing : .failed
             let note = tone == .missing ? "Codex session expired. Run codex login." : HTTP.message(status: response.0, data: response.1)
-            return .problem(id: "openai", name: "OpenAI", tone: tone, note: note)
+            return .problem(id: "openai", name: "Codex", tone: tone, note: note)
         }
 
         let rate = JSON.dictionary(JSON.value(body, key: "rate_limit")) ?? [:]
@@ -357,7 +389,7 @@ struct UsageService: Sendable {
         }
         return ProviderSnapshot(
             id: "openai",
-            name: "OpenAI",
+            name: "Codex",
             plan: plan,
             headline: headline,
             bars: bars,
@@ -391,281 +423,16 @@ struct UsageService: Sendable {
 
     // MARK: Claude
 
-    private enum ClaudeSessionCache {
-        private final class Store: @unchecked Sendable {
-            let lock = NSLock()
-            var memory: [String: Any]?
-        }
-
-        private static let store = Store()
-
-        private static var fileURL: URL {
-            Paths.file("Library", "Application Support", "Uso", "claude-session.json")
-        }
-
-        static func fresh() -> [String: Any]? {
-            store.lock.lock()
-            defer { store.lock.unlock() }
-            if let memory = store.memory, tokenIsFresh(memory) { return memory }
-            guard let data = try? Data(contentsOf: fileURL),
-                  let root = JSON.object(from: data),
-                  let oauth = JSON.dictionary(JSON.value(root, key: "claudeAiOauth")),
-                  tokenIsFresh(oauth)
-            else { return nil }
-            store.memory = oauth
-            return oauth
-        }
-
-        static func save(_ oauth: [String: Any]) {
-            store.lock.lock()
-            store.memory = oauth
-            store.lock.unlock()
-            let url = fileURL
-            let directory = url.deletingLastPathComponent()
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-            guard let data = try? JSONSerialization.data(withJSONObject: ["claudeAiOauth": oauth]) else { return }
-            try? data.write(to: url, options: .atomic)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        }
-
-        static func clear() {
-            store.lock.lock()
-            store.memory = nil
-            store.lock.unlock()
-            try? FileManager.default.removeItem(at: fileURL)
-        }
-
-        static func stored() -> [String: Any]? {
-            store.lock.lock()
-            defer { store.lock.unlock() }
-            if let memory = store.memory, hasToken(memory) { return memory }
-            guard let data = try? Data(contentsOf: fileURL),
-                  let root = JSON.object(from: data),
-                  let oauth = JSON.dictionary(JSON.value(root, key: "claudeAiOauth")),
-                  hasToken(oauth)
-            else { return nil }
-            store.memory = oauth
-            return oauth
-        }
-
-        static func isFresh(_ oauth: [String: Any]) -> Bool {
-            guard hasToken(oauth) else { return false }
-            let expires = Clock.unix(Double(JSON.int64(JSON.value(oauth, key: "expiresAt")) ?? 0))
-            return expires.timeIntervalSinceNow > 120
-        }
-
-        static func backoffActive() -> Bool {
-            Date().timeIntervalSince1970 < UserDefaults.standard.double(forKey: backoffKey)
-        }
-
-        static func noteDenied() {
-            UserDefaults.standard.set(Date().addingTimeInterval(6 * 60 * 60).timeIntervalSince1970, forKey: backoffKey)
-        }
-
-        static func clearBackoff() {
-            UserDefaults.standard.removeObject(forKey: backoffKey)
-        }
-
-        private static let backoffKey = "claudeKeychainBackoffUntil"
-
-        private static func hasToken(_ oauth: [String: Any]) -> Bool {
-            let token = JSON.string(JSON.value(oauth, key: "accessToken")) ?? ""
-            return !token.isEmpty
-        }
-
-        private static func tokenIsFresh(_ oauth: [String: Any]) -> Bool {
-            isFresh(oauth)
-        }
+    func claudeWithPrompt() async -> ProviderSnapshot {
+        await claudeClient.load(prompt: true)
     }
 
-    func claudeWithPrompt() async -> ProviderSnapshot {
-        await claude(prompt: true)
+    func museWithPrompt() async -> ProviderSnapshot {
+        await museClient.load(prompt: true)
     }
 
     private func claude() async -> ProviderSnapshot {
-        await claude(prompt: false)
-    }
-
-    private func claude(prompt: Bool) async -> ProviderSnapshot {
-        let oauthRead = readClaudeOAuth(prompt: prompt)
-        guard var oauth = oauthRead.oauth else {
-            let note = oauthRead.needsPermission
-                ? "Claude Code is signed in. Tap and choose Always Allow."
-                : "No Claude Code session. Sign in with the Claude Code CLI."
-            return .problem(id: "claude", name: "Claude", tone: .missing, note: note)
-        }
-        guard let token = JSON.string(JSON.value(oauth, key: "accessToken")), !token.isEmpty else {
-            return .problem(id: "claude", name: "Claude", tone: .missing, note: "Claude Code has no token. Sign in with the CLI.")
-        }
-
-        var response = await claudeUsage(token: token)
-        if response?.0 == 401 {
-            ClaudeSessionCache.clear()
-            if let newer = reloadClaudeOAuth(prompt: prompt),
-               let next = JSON.string(JSON.value(newer, key: "accessToken")) {
-                oauth = newer
-                response = await claudeUsage(token: next)
-            }
-        }
-        guard let response else {
-            return .problem(id: "claude", name: "Claude", tone: .failed, note: "Can't reach Claude.")
-        }
-        guard response.0 == 200, let body = JSON.object(from: response.1) else {
-            let rejected = response.0 == 401 || response.0 == 403
-            let note = rejected
-                ? "Couldn't refresh Claude. The last reading stays up."
-                : HTTP.message(status: response.0, data: response.1)
-            return .problem(id: "claude", name: "Claude", tone: .failed, note: note)
-        }
-
-        var bars: [MeterBar] = []
-        for item in JSON.array(JSON.value(body, key: "limits")) {
-            guard let percent = JSON.double(JSON.value(item, key: "percent")),
-                  let kind = JSON.string(JSON.value(item, key: "kind"))
-            else { continue }
-            let scope = JSON.string(JSON.value(JSON.value(JSON.value(item, key: "scope"), key: "model"), key: "display_name"))
-            let label: String
-            switch kind {
-            case "session": label = "Session"
-            case "weekly_all": label = "Week"
-            case "weekly_scoped": label = scope.map { "\($0) week" } ?? "Model week"
-            default: continue
-            }
-            let reset = Clock.date(from: JSON.value(item, key: "resets_at"))
-            bars.append(MeterBar(id: kind + (scope ?? ""), label: label, usedPercent: percent, detail: Format.reset(reset)))
-        }
-        if bars.isEmpty {
-            if let five = JSON.dictionary(JSON.value(body, key: "five_hour")),
-               let used = JSON.double(JSON.value(five, key: "utilization")) {
-                bars.append(MeterBar(
-                    id: "five",
-                    label: "5 hours",
-                    usedPercent: used,
-                    detail: Format.reset(Clock.date(from: JSON.value(five, key: "resets_at")))
-                ))
-            }
-            if let week = JSON.dictionary(JSON.value(body, key: "seven_day")),
-               let used = JSON.double(JSON.value(week, key: "utilization")) {
-                bars.append(MeterBar(
-                    id: "week",
-                    label: "Week",
-                    usedPercent: used,
-                    detail: Format.reset(Clock.date(from: JSON.value(week, key: "resets_at")))
-                ))
-            }
-        }
-
-        var lines: [String] = []
-        if let breakdown = JSON.dictionary(JSON.value(body, key: "seven_day_breakdown")) {
-            let parts = JSON.array(JSON.value(breakdown, key: "rows")).compactMap { row -> String? in
-                guard let name = JSON.string(JSON.value(row, key: "display_name")),
-                      let percent = JSON.double(JSON.value(row, key: "percent")),
-                      percent > 0
-                else { return nil }
-                return "\(name) \(Format.percent(percent))"
-            }
-            if !parts.isEmpty {
-                lines.append("Mix · " + parts.joined(separator: " · "))
-            }
-        }
-
-        let subscription = JSON.string(JSON.value(oauth, key: "subscriptionType")) ?? ""
-        let plan = subscription.isEmpty ? "Claude" : Format.planName(subscription)
-        let headline: String
-        if let first = bars.first {
-            headline = "\(Format.percent(max(0, 100 - first.usedPercent))) left"
-        } else {
-            headline = "No window"
-        }
-        return ProviderSnapshot(
-            id: "claude",
-            name: "Claude",
-            plan: plan,
-            headline: headline,
-            bars: bars,
-            chips: [],
-            lines: lines,
-            note: nil,
-            warning: nil,
-            tone: .ready
-        )
-    }
-
-    private func readClaudeOAuth(prompt: Bool) -> (oauth: [String: Any]?, needsPermission: Bool, fromKeychain: Bool) {
-        if !prompt, let cached = ClaudeSessionCache.fresh() {
-            return (cached, false, false)
-        }
-        if let file = claudeCredentialsFile(), ClaudeSessionCache.isFresh(file) {
-            ClaudeSessionCache.save(file)
-            ClaudeSessionCache.clearBackoff()
-            return (file, false, false)
-        }
-        if !prompt, ClaudeSessionCache.backoffActive() {
-            return (nil, true, false)
-        }
-        return takeClaudeKeychain(prompt: prompt)
-    }
-
-    private func reloadClaudeOAuth(prompt: Bool) -> [String: Any]? {
-        if let file = claudeCredentialsFile(), ClaudeSessionCache.isFresh(file) {
-            ClaudeSessionCache.save(file)
-            return file
-        }
-        if !prompt, ClaudeSessionCache.backoffActive() { return nil }
-        return takeClaudeKeychain(prompt: prompt).oauth
-    }
-
-    private func takeClaudeKeychain(prompt: Bool) -> (oauth: [String: Any]?, needsPermission: Bool, fromKeychain: Bool) {
-        if let oauth = oauth(from: Keychain.passwordViaSecurity(service: "Claude Code-credentials")) {
-            ClaudeSessionCache.save(oauth)
-            ClaudeSessionCache.clearBackoff()
-            return (oauth, false, true)
-        }
-        switch Keychain.password(service: "Claude Code-credentials", prompt: prompt) {
-        case .data(let data):
-            guard let oauth = oauth(from: .data(data)) else { return (nil, false, false) }
-            ClaudeSessionCache.save(oauth)
-            ClaudeSessionCache.clearBackoff()
-            return (oauth, false, true)
-        case .needsPermission:
-            if !prompt { ClaudeSessionCache.noteDenied() }
-            return (nil, true, false)
-        case .missing:
-            return (nil, false, false)
-        }
-    }
-
-    private func oauth(from read: KeychainRead) -> [String: Any]? {
-        guard case .data(let data) = read,
-              let root = JSON.object(from: data),
-              let oauth = JSON.dictionary(JSON.value(root, key: "claudeAiOauth")),
-              ClaudeSessionCache.isFresh(oauth)
-        else { return nil }
-        return oauth
-    }
-
-    private func claudeCredentialsFile() -> [String: Any]? {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/.credentials.json")
-        guard let data = try? Data(contentsOf: url),
-              let root = JSON.object(from: data),
-              let oauth = JSON.dictionary(JSON.value(root, key: "claudeAiOauth"))
-        else { return nil }
-        return oauth
-    }
-
-    private func claudeUsage(token: String) async -> (Int, Data)? {
-        await HTTP.send(
-            URL(string: "https://api.anthropic.com/api/oauth/usage")!,
-            headers: [
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": "claude-code/2.1.80",
-                "Authorization": "Bearer \(token)",
-                "anthropic-beta": "oauth-2025-04-20",
-            ]
-        )
+        await claudeClient.load()
     }
 
     // MARK: OpenCode

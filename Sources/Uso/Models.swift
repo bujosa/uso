@@ -32,6 +32,18 @@ struct ProviderSnapshot: Identifiable, Sendable, Equatable {
     var note: String?
     var warning: String?
     var tone: ProviderTone
+    var readAt: Date? = nil
+
+    var isCurrent: Bool { tone == .ready && warning == nil }
+
+    func keepingLastReading(_ previous: ProviderSnapshot?) -> ProviderSnapshot {
+        guard tone == .failed, let previous, previous.tone == .ready else { return self }
+        var kept = previous
+        let time = previous.readAt.map { $0.formatted(date: .omitted, time: .shortened) }
+        let label = time.map { "Last reading at \($0)." } ?? "Last reading."
+        kept.warning = "\(label) \(note ?? "Couldn't refresh.")"
+        return kept
+    }
 
     var tightestUsed: Double? {
         bars.map(\.usedPercent).max()
@@ -60,9 +72,12 @@ struct ProviderSnapshot: Identifiable, Sendable, Equatable {
 
     static let placeholders: [ProviderSnapshot] = [
         .loading(id: "grok", name: "Grok"),
+        .loading(id: "grok-bot", name: "Grok Bot"),
         .loading(id: "cursor", name: "Cursor"),
-        .loading(id: "openai", name: "OpenAI"),
+        .loading(id: "openai", name: "Codex"),
         .loading(id: "claude", name: "Claude"),
+        .loading(id: "muse", name: "Muse Code"),
+        .loading(id: "muse-app", name: "Muse"),
         .loading(id: "opencode", name: "OpenCode"),
     ]
 
@@ -92,7 +107,7 @@ struct HeroState: Equatable {
 
 enum Pressure {
     static func hero(from providers: [ProviderSnapshot]) -> HeroState? {
-        let points = providers.compactMap { provider -> (ProviderSnapshot, MeterBar)? in
+        let points = providers.filter(\.isCurrent).compactMap { provider -> (ProviderSnapshot, MeterBar)? in
             guard let bar = provider.bars.first else { return nil }
             return (provider, bar)
         }
@@ -136,7 +151,7 @@ enum Pressure {
 
 enum MenuTicker {
     static func lines(from providers: [ProviderSnapshot]) -> [String] {
-        providers.filter { $0.tone == .ready }.flatMap(lines(for:))
+        providers.filter(\.isCurrent).flatMap(lines(for:))
     }
 
     private static func lines(for provider: ProviderSnapshot) -> [String] {
@@ -169,6 +184,11 @@ enum MenuTicker {
                 let tag = (id == "session" || id == "five") ? "5h" : "wk"
                 return "Claude \(tag) \(remaining(bar))"
             }
+        case "muse":
+            if provider.bars.isEmpty {
+                return [provider.headline == "Billing needed" ? "Muse billing" : "Muse no quota"]
+            }
+            return provider.bars.map { "Muse \(short($0)) \(remaining($0))" }
         case "opencode":
             guard let week = provider.chips.first(where: { $0.id == "week" }) else { return [] }
             return ["OpenCode \(week.value)"]
