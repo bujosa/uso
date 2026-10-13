@@ -156,9 +156,7 @@ final class UsageStore: ObservableObject {
         case "cursor": return 2
         case "openai": return 3
         case "claude": return 4
-        case "muse": return 5
-        case "muse-app": return 6
-        case "opencode": return 7
+        case "opencode": return 5
         default: return 9
         }
     }
@@ -169,18 +167,6 @@ final class UsageStore: ObservableObject {
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             let snapshot = await self.service.claudeWithPrompt()
-            self.apply(snapshot, keeping: self.providers.filter { $0.tone != .loading })
-            self.isRefreshing = false
-            self.task = nil
-        }
-    }
-
-    func allowMuseKeychain() {
-        guard task == nil else { return }
-        isRefreshing = true
-        task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let snapshot = await self.service.museWithPrompt()
             self.apply(snapshot, keeping: self.providers.filter { $0.tone != .loading })
             self.isRefreshing = false
             self.task = nil

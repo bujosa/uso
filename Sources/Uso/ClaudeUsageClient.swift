@@ -9,6 +9,7 @@ enum ClaudeCredentialRead: Sendable {
     case available(ClaudeCredentials)
     case needsPermission
     case missing
+    case unavailable
 }
 
 enum ClaudeSession {
@@ -38,6 +39,8 @@ enum ClaudeSession {
             return fileCredentials().map(ClaudeCredentialRead.available) ?? .needsPermission
         case .missing:
             return fileCredentials().map(ClaudeCredentialRead.available) ?? .missing
+        case .unavailable:
+            return fileCredentials().map(ClaudeCredentialRead.available) ?? .unavailable
         }
     }
 
@@ -80,7 +83,7 @@ actor ClaudeUsageClient {
                 URL(string: "https://api.anthropic.com/api/oauth/usage")!,
                 headers: [
                     "Accept": "application/json", "Authorization": "Bearer \(token)",
-                    "anthropic-beta": "oauth-2025-04-20", "User-Agent": "Uso/1.1.0",
+                    "anthropic-beta": "oauth-2025-04-20", "User-Agent": AppVersion.userAgent,
                     "Cache-Control": "no-cache",
                 ])
         },
@@ -97,8 +100,16 @@ actor ClaudeUsageClient {
         }
         let reading = readCredentials(prompt)
         guard case .available(var credentials) = reading else {
+            if case .unavailable = reading {
+                var result = problem(
+                    .failed, "The Claude Code session could not be read in time. Try checking again later.")
+                result.connection = .unverified
+                return result
+            }
             if case .needsPermission = reading {
-                return problem(.missing, "Claude Code is signed in. Tap and choose Always Allow.")
+                var result = problem(.missing, "Claude Code is signed in. Tap and choose Always Allow.")
+                result.connection = .keychainPermission
+                return result
             }
             return problem(.missing, "No current Claude Code session. Sign in with the Claude Code CLI.")
         }

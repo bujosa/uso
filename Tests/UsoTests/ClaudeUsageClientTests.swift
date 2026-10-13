@@ -90,6 +90,7 @@ struct ClaudeUsageClientTests {
         let client = ClaudeUsageClient(readCredentials: { _ in .needsPermission }, sendUsage: { fixture.send($0) })
         let snapshot = await client.load()
         #expect(snapshot.tone == .missing)
+        #expect(snapshot.connection == .keychainPermission)
         #expect(snapshot.note?.hasPrefix("Claude Code is signed in") == true)
         #expect(fixture.recorded.isEmpty)
     }

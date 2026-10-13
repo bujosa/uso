@@ -184,16 +184,15 @@ private struct AccountSettingsRow: View {
             } else if snapshot.tone == .missing {
                 Text(snapshot.note ?? account.signInHint).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if account.id == "muse", let note = snapshot.note {
-                Text(note).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             } else if account.id == "grok-bot" {
                 Text("Uses the same account as Cursor. Its weekly allowance is separate from Grok Build.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if account.id == "muse", let readAt = snapshot.readAt {
-                Text("Last reading at \(readAt.formatted(date: .omitted, time: .shortened)) · checks every 5 minutes")
+            if let readAt = snapshot.readAt {
+                let time = readAt.formatted(
+                    date: Calendar.current.isDateInToday(readAt) ? .omitted : .abbreviated, time: .shortened)
+                Text("Last reading at \(time)")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             HStack(spacing: 18) {
@@ -214,12 +213,8 @@ private struct AccountSettingsRow: View {
                 )
                 .accessibilityLabel("Show \(account.name) in menu bar")
                 Spacer(minLength: 0)
-                if account.id == "muse-app" {
-                    Button("Open Muse") { MuseAppIntegration.open() }
-                } else if account.id == "claude", snapshot.note?.hasPrefix("Claude Code is signed in") == true {
+                if account.id == "claude", snapshot.connection == .keychainPermission {
                     Button("Allow access") { store.allowClaudeKeychain() }
-                } else if museNeedsAccess {
-                    Button("Allow access") { store.allowMuseKeychain() }
                 } else {
                     Button("Manage account") { NSWorkspace.shared.open(account.accountURL) }
                         .accessibilityLabel("Manage \(account.name) account")
@@ -234,11 +229,9 @@ private struct AccountSettingsRow: View {
 
     private var planDescription: String {
         if snapshot.tone == .loading { return "Looking for a signed-in account" }
-        if account.id == "muse-app" { return "View plan and usage in Muse" }
-        if account.id == "claude", snapshot.note?.hasPrefix("Claude Code is signed in") == true {
+        if account.id == "claude", snapshot.connection == .keychainPermission {
             return "Allow access to verify your plan"
         }
-        if museNeedsAccess { return "Allow access to verify your plan" }
         if snapshot.plan == "Local" { return "Local activity · no plan quota" }
         if !snapshot.plan.isEmpty {
             return snapshot.warning == nil ? snapshot.plan : "Last detected: \(snapshot.plan)"
@@ -248,11 +241,12 @@ private struct AccountSettingsRow: View {
 
     private var status: String {
         if snapshot.warning != nil { return "Needs refresh" }
-        if account.id == "muse-app", snapshot.tone != .loading { return "App access" }
-        if museNeedsAccess || (account.id == "claude" && snapshot.note?.hasPrefix("Claude Code is signed in") == true) {
-            return "Access needed"
+        if snapshot.tone != .loading, let connection = snapshot.connection {
+            switch connection {
+            case .unverified: return "Not verified"
+            case .keychainPermission: return "Access needed"
+            }
         }
-        if account.id == "muse", snapshot.headline == "Billing needed" { return "Billing needed" }
         switch snapshot.tone {
         case .ready: return snapshot.plan == "Local" ? "Local" : "Detected"
         case .loading: return "Checking"
@@ -263,7 +257,6 @@ private struct AccountSettingsRow: View {
 
     private var statusColor: Color {
         if snapshot.warning != nil { return .orange }
-        if account.id == "muse", snapshot.headline == "Billing needed" { return .orange }
         switch snapshot.tone {
         case .ready: return snapshot.plan == "Local" ? .secondary : .green
         case .loading: return .secondary
@@ -272,7 +265,4 @@ private struct AccountSettingsRow: View {
         }
     }
 
-    private var museNeedsAccess: Bool {
-        account.id == "muse" && snapshot.note?.hasPrefix("Muse CLI is signed in") == true
-    }
 }

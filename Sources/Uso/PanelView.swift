@@ -124,10 +124,8 @@ struct PanelView: View {
         VStack(spacing: 0) {
             ForEach(Array(store.visibleProviders.enumerated()), id: \.element.id) { index, provider in
                 Button {
-                    if provider.id == "claude", provider.note?.hasPrefix("Claude Code is signed in") == true {
+                    if provider.id == "claude", provider.connection == .keychainPermission {
                         store.allowClaudeKeychain()
-                    } else if provider.id == "muse", provider.note?.hasPrefix("Muse CLI is signed in") == true {
-                        store.allowMuseKeychain()
                     } else {
                         selectedID = provider.id
                     }
@@ -337,7 +335,7 @@ private struct ProviderRow: View {
     }
 
     private var showsBarLabels: Bool {
-        provider.id == "cursor" || provider.id == "claude" || provider.id == "openai" || provider.id == "muse"
+        provider.id == "cursor" || provider.id == "claude" || provider.id == "openai"
     }
 
     private var listBars: [MeterBar] {
@@ -350,7 +348,6 @@ private struct ProviderRow: View {
             return provider.bars
                 .filter { order.contains($0.id) }
                 .sorted { (order.firstIndex(of: $0.id) ?? 9) < (order.firstIndex(of: $1.id) ?? 9) }
-        case "muse": return provider.bars
         case "openai":
             return provider.bars.sorted { lhs, rhs in
                 (lhs.label == "Week" ? 1 : 0) < (rhs.label == "Week" ? 1 : 0)
@@ -428,28 +425,13 @@ private struct DetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if provider.id == "claude", note.hasPrefix("Claude Code is signed in") {
+                if provider.id == "claude", provider.connection == .keychainPermission {
                     Button("Allow access") {
                         store.allowClaudeKeychain()
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                } else if provider.id == "muse", note.hasPrefix("Muse CLI is signed in") {
-                    Button("Allow access") { store.allowMuseKeychain() }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                } else if provider.id == "muse-app" {
-                    Button("Open Muse") { MuseAppIntegration.open() }
-                        .buttonStyle(.borderedProminent).controlSize(.small)
                 }
-            }
-
-            if provider.id == "muse", let readAt = provider.readAt {
-                Text(
-                    "Last reading at \(readAt.formatted(date: .omitted, time: .shortened)). Checks are limited to every 5 minutes."
-                )
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             }
 
             if !provider.bars.isEmpty {
@@ -618,8 +600,6 @@ enum Accent {
         case "cursor": return Color(red: 0.45, green: 0.62, blue: 0.98)
         case "openai": return Color(red: 0.36, green: 0.72, blue: 0.48)
         case "claude": return Color(red: 0.86, green: 0.48, blue: 0.34)
-        case "muse": return Color(red: 0.32, green: 0.57, blue: 0.98)
-        case "muse-app": return Color(red: 0.24, green: 0.67, blue: 0.92)
         case "opencode": return Color(red: 0.28, green: 0.70, blue: 0.70)
         default: return Color.primary
         }
