@@ -2,7 +2,6 @@ import Foundation
 
 struct UsageService: Sendable {
     private let claudeClient = ClaudeUsageClient()
-    private let museClient = MuseUsageClient()
 
     func load() async -> [ProviderSnapshot] {
         var snapshots: [ProviderSnapshot] = []
@@ -21,8 +20,6 @@ struct UsageService: Sendable {
                     group.addTask { await self.cursor() }
                     group.addTask { await self.openai() }
                     group.addTask { await self.claude() }
-                    group.addTask { await self.museClient.load() }
-                    group.addTask { MuseAppIntegration.load() }
                     group.addTask { await self.opencode() }
                     for await snapshot in group {
                         continuation.yield(snapshot)
@@ -33,7 +30,7 @@ struct UsageService: Sendable {
         }
     }
 
-    private static let order = ["grok": 0, "grok-bot": 1, "cursor": 2, "openai": 3, "claude": 4, "muse": 5, "muse-app": 6, "opencode": 7]
+    private static let order = ["grok": 0, "grok-bot": 1, "cursor": 2, "openai": 3, "claude": 4, "opencode": 5]
 
     // MARK: Grok
 
@@ -425,10 +422,6 @@ struct UsageService: Sendable {
 
     func claudeWithPrompt() async -> ProviderSnapshot {
         await claudeClient.load(prompt: true)
-    }
-
-    func museWithPrompt() async -> ProviderSnapshot {
-        await museClient.load(prompt: true)
     }
 
     private func claude() async -> ProviderSnapshot {

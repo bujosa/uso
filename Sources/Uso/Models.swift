@@ -21,6 +21,11 @@ enum ProviderTone: Sendable, Equatable {
     case loading
 }
 
+enum AccountConnection: Sendable, Equatable {
+    case unverified
+    case keychainPermission
+}
+
 struct ProviderSnapshot: Identifiable, Sendable, Equatable {
     var id: String
     var name: String
@@ -33,6 +38,7 @@ struct ProviderSnapshot: Identifiable, Sendable, Equatable {
     var warning: String?
     var tone: ProviderTone
     var readAt: Date? = nil
+    var connection: AccountConnection? = nil
 
     var isCurrent: Bool { tone == .ready && warning == nil }
 
@@ -76,8 +82,6 @@ struct ProviderSnapshot: Identifiable, Sendable, Equatable {
         .loading(id: "cursor", name: "Cursor"),
         .loading(id: "openai", name: "Codex"),
         .loading(id: "claude", name: "Claude"),
-        .loading(id: "muse", name: "Muse Code"),
-        .loading(id: "muse-app", name: "Muse"),
         .loading(id: "opencode", name: "OpenCode"),
     ]
 
@@ -184,11 +188,6 @@ enum MenuTicker {
                 let tag = (id == "session" || id == "five") ? "5h" : "wk"
                 return "Claude \(tag) \(remaining(bar))"
             }
-        case "muse":
-            if provider.bars.isEmpty {
-                return [provider.headline == "Billing needed" ? "Muse billing" : "Muse no quota"]
-            }
-            return provider.bars.map { "Muse \(short($0)) \(remaining($0))" }
         case "opencode":
             guard let week = provider.chips.first(where: { $0.id == "week" }) else { return [] }
             return ["OpenCode \(week.value)"]

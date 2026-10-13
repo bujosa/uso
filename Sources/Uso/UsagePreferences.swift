@@ -46,12 +46,6 @@ struct ProviderAccount: Identifiable {
             id: "claude", name: "Claude", signInHint: "Sign in with Claude Code, then check again.",
             accountURL: URL(string: "https://claude.ai/settings/usage")!),
         ProviderAccount(
-            id: "muse", name: "Muse Code", signInHint: "Sign in with muse login, then check again.",
-            accountURL: URL(string: "https://dev.meta.ai/platform")!),
-        ProviderAccount(
-            id: "muse-app", name: "Muse", signInHint: "Open Muse to view its account and usage.",
-            accountURL: URL(string: "https://ai.meta.com/muse/")!),
-        ProviderAccount(
             id: "opencode", name: "OpenCode",
             signInHint: "Use OpenCode on this Mac to detect local activity or your Go plan.",
             accountURL: URL(string: "https://opencode.ai/auth")!),

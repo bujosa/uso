@@ -3,6 +3,13 @@ import LocalAuthentication
 import Security
 import SQLite3
 
+enum AppVersion {
+    static var current: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
+
+    static var userAgent: String { "Uso/\(current)" }
+}
 enum JSON {
     static func object(from data: Data) -> [String: Any]? {
         (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -257,14 +264,23 @@ enum HTTP {
     }
 }
 
-enum KeychainRead {
+enum KeychainRead: Sendable {
     case data(Data)
     case needsPermission
     case missing
+    case unavailable
 }
 
 enum Keychain {
     static func password(service: String, account: String? = nil, prompt: Bool) -> KeychainRead {
+        CredentialReadDeadline.shared.read(
+            id: "\(service)|\(account ?? "")|\(prompt)", timeout: prompt ? 30 : 3
+        ) {
+            unboundedPassword(service: service, account: account, prompt: prompt)
+        }
+    }
+
+    private static func unboundedPassword(service: String, account: String?, prompt: Bool) -> KeychainRead {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
