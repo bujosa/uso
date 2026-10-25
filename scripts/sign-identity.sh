@@ -1,7 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 name="Uso Local"
-if security find-identity -v -p codesigning | grep -q "$name"; then
+if security find-identity -p codesigning | grep -q "$name"; then
   exit 0
 fi
 dir="${HOME}/Library/Application Support/Uso/signing"
