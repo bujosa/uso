@@ -18,14 +18,27 @@ Requires macOS 14 or later, on Apple silicon or Intel.
 
 ## Install
 
+Paste this in Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bujosa/uso/main/scripts/get.sh | bash
+```
+
+It downloads the latest release for your chip (Apple silicon or Intel), checks it against its SHA-256 checksum and code signature, installs `Uso.app` in `~/Applications` (or replaces the copy already in `/Applications`), and opens it. Run it again to update. You can [read the script](scripts/get.sh) first.
+
+Uso is locally signed, not Apple-notarized. macOS asks for approval when a browser downloads an app like this, but not when `curl` downloads it, so the app opens right away.
+
+Look in the menu bar. The label cycles through each account. The app does not show a Dock icon. Quit it from the panel.
+
+### Manual download
+
 Download the zip for your Mac from the [releases page](https://github.com/bujosa/uso/releases/latest): `apple-silicon` for M-series chips, `intel` for Intel processors. Apple menu > About This Mac shows which one you have.
 
 1. Unzip the file. You get `Uso.app`.
 2. Move `Uso.app` into Applications.
-3. Open it. If macOS says the app cannot be checked, open System Settings > Privacy & Security and click Open Anyway. On macOS 14 you can instead right-click `Uso.app`, choose Open, then Open again.
-4. Look in the menu bar. The label cycles through each account.
+3. Open it. macOS says it can't check the app. Open System Settings > Privacy & Security, click Open Anyway, and confirm. On macOS 14 you can instead right-click `Uso.app`, choose Open, then Open again.
 
-The app does not show a Dock icon. Quit it from the panel.
+## Sign-in
 
 Sign in with the Claude Code CLI. Uso rereads that live session for each refresh and does not log in, refresh the token, write the keychain, or save a copy of the credentials. A failed refresh keeps the last percentages on the row, labeled with the last successful reading time. Those old readings leave the menu bar rotation until the next successful refresh. A rejected or missing session clears the old account's numbers.
 
@@ -41,7 +54,7 @@ For Grok Bot, open the Grok Bot app on this Mac once, and sign in to Cursor (or 
 
 That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.2.0-macOS-apple-silicon.zip` and `dist/Uso-1.2.0-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
 
-Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, Cursor session, source detection, and preference persistence regression tests. Run `swift build -c release --arch arm64 --arch x86_64` to check the release build.
+Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, Cursor session, source detection, and preference persistence regression tests. Run `swift build -c release --arch arm64 --arch x86_64` to check the release build. CI runs both, plus `swift format lint --strict` and a script check, on every pull request.
 
 ## What each row shows
 
