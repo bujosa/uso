@@ -1,7 +1,7 @@
 import Foundation
 import LocalAuthentication
-import Security
 import SQLite3
+import Security
 
 enum AppVersion {
     static var current: String {
@@ -152,8 +152,9 @@ enum Format {
 
     static func modelName(_ raw: String) -> String {
         if let data = raw.data(using: .utf8),
-           let object = JSON.object(from: data),
-           let id = JSON.string(JSON.value(object, key: "id")) {
+            let object = JSON.object(from: data),
+            let id = JSON.string(JSON.value(object, key: "id"))
+        {
             return modelName(id)
         }
         var parts = raw.split(separator: "-").map(String.init)
@@ -241,7 +242,8 @@ enum HTTP {
         do {
             let (data, response) = try await session.data(for: request)
             let http = response as? HTTPURLResponse
-            return Response(status: http?.statusCode ?? 0, data: data, retryAfter: http?.value(forHTTPHeaderField: "Retry-After"))
+            return Response(
+                status: http?.statusCode ?? 0, data: data, retryAfter: http?.value(forHTTPHeaderField: "Retry-After"))
         } catch {
             return nil
         }
@@ -250,8 +252,9 @@ enum HTTP {
     static func message(status: Int, data: Data) -> String {
         if let object = JSON.object(from: data) {
             if let error = JSON.dictionary(JSON.value(object, key: "error")),
-               let message = JSON.string(JSON.value(error, key: "message")),
-               !message.isEmpty {
+                let message = JSON.string(JSON.value(error, key: "message")),
+                !message.isEmpty
+            {
                 return message
             }
             if let message = JSON.string(JSON.value(object, key: "message")), !message.isEmpty {

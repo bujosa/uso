@@ -8,7 +8,7 @@ let package = Package(
         .executableTarget(
             name: "Uso",
             linkerSettings: [
-                .linkedLibrary("sqlite3"),
+                .linkedLibrary("sqlite3")
             ]
         ),
         .testTarget(name: "UsoTests", dependencies: ["Uso"]),

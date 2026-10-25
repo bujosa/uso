@@ -37,9 +37,9 @@ struct UsageService: Sendable {
     private func grok() async -> ProviderSnapshot {
         let authURL = Paths.file(".grok", "auth.json")
         guard let raw = try? Data(contentsOf: authURL),
-              var root = JSON.object(from: raw),
-              let storageKey = root.keys.first,
-              var entry = JSON.dictionary(JSON.value(root, key: storageKey))
+            var root = JSON.object(from: raw),
+            let storageKey = root.keys.first,
+            var entry = JSON.dictionary(JSON.value(root, key: storageKey))
         else {
             return .problem(id: "grok", name: "Grok", tone: .missing, note: "No session. Run grok login.")
         }
@@ -48,7 +48,8 @@ struct UsageService: Sendable {
             if let refreshed = await refreshGrok(entry) {
                 entry = refreshed
                 root[storageKey] = refreshed
-                if let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) {
+                if let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+                {
                     try? data.write(to: authURL, options: .atomic)
                 }
             }
@@ -74,30 +75,34 @@ struct UsageService: Sendable {
         if status == 401 || status == 403 {
             return .signInRequired(id: "grok", name: "Grok", note: "Grok session expired. Run grok login.")
         }
-        guard status == 200, let body = JSON.object(from: data), let config = JSON.dictionary(JSON.value(body, key: "config")) else {
+        guard status == 200, let body = JSON.object(from: data),
+            let config = JSON.dictionary(JSON.value(body, key: "config"))
+        else {
             return .problem(id: "grok", name: "Grok", tone: .failed, note: HTTP.message(status: status, data: data))
         }
 
         let used = JSON.double(JSON.value(config, key: "creditUsagePercent")) ?? 0
         let period = JSON.dictionary(JSON.value(config, key: "currentPeriod"))
-        let resets = Clock.date(from: JSON.value(period ?? [:], key: "end"))
+        let resets =
+            Clock.date(from: JSON.value(period ?? [:], key: "end"))
             ?? Clock.date(from: JSON.value(config, key: "billingPeriodEnd"))
         let window = windowLabel(JSON.string(JSON.value(period ?? [:], key: "type")))
         var bars = [
-            MeterBar(id: "credits", label: window, usedPercent: used, detail: Format.reset(resets)),
+            MeterBar(id: "credits", label: window, usedPercent: used, detail: Format.reset(resets))
         ]
         for product in JSON.array(JSON.value(config, key: "productUsage")) {
             guard let usedProduct = JSON.double(JSON.value(product, key: "usagePercent")),
-                  let name = JSON.string(JSON.value(product, key: "product"))
+                let name = JSON.string(JSON.value(product, key: "product"))
             else { continue }
             bars.append(MeterBar(id: name, label: grokProduct(name), usedPercent: usedProduct, detail: ""))
         }
 
         var plan = "Grok"
         if let settings = await settingsCall, settings.0 == 200,
-           let settingsBody = JSON.object(from: settings.1),
-           let tier = JSON.string(JSON.value(settingsBody, key: "subscription_tier_display")),
-           !tier.isEmpty {
+            let settingsBody = JSON.object(from: settings.1),
+            let tier = JSON.string(JSON.value(settingsBody, key: "subscription_tier_display")),
+            !tier.isEmpty
+        {
             plan = tier
         }
 
@@ -125,21 +130,22 @@ struct UsageService: Sendable {
 
     private func refreshGrok(_ entry: [String: Any]) async -> [String: Any]? {
         guard let refresh = JSON.string(JSON.value(entry, key: "refresh_token")),
-              let clientID = JSON.string(JSON.value(entry, key: "oidc_client_id")),
-              let url = URL(string: "https://auth.x.ai/oauth2/token")
+            let clientID = JSON.string(JSON.value(entry, key: "oidc_client_id")),
+            let url = URL(string: "https://auth.x.ai/oauth2/token")
         else { return nil }
         let body = formEncode([
             "grant_type": "refresh_token",
             "refresh_token": refresh,
             "client_id": clientID,
         ])
-        guard let (status, data) = await HTTP.send(
-            url,
-            method: "POST",
-            headers: ["Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"],
-            body: body
-        ), status == 200, let payload = JSON.object(from: data),
-              let access = JSON.string(JSON.value(payload, key: "access_token"))
+        guard
+            let (status, data) = await HTTP.send(
+                url,
+                method: "POST",
+                headers: ["Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"],
+                body: body
+            ), status == 200, let payload = JSON.object(from: data),
+            let access = JSON.string(JSON.value(payload, key: "access_token"))
         else { return nil }
         var updated = entry
         updated["key"] = access
@@ -184,8 +190,10 @@ struct UsageService: Sendable {
 
     private func grokBot() async -> ProviderSnapshot {
         // Grok Bot's allowance lives on any Cursor account, so only count it once the app has run on this Mac.
-        guard FileManager.default.fileExists(atPath: Paths.file("Library", "Application Support", "Grok Bot").path) else {
-            return .problem(id: "grok-bot", name: "Grok Bot", tone: .missing, note: "Grok Bot isn't set up on this Mac.")
+        guard FileManager.default.fileExists(atPath: Paths.file("Library", "Application Support", "Grok Bot").path)
+        else {
+            return .problem(
+                id: "grok-bot", name: "Grok Bot", tone: .missing, note: "Grok Bot isn't set up on this Mac.")
         }
         let session = CursorSession.read()
         guard !session.tokens.isEmpty else {
@@ -196,19 +204,23 @@ struct UsageService: Sendable {
                     : "Run cursor-agent login, or sign in to Cursor, with the account you use in Grok Bot.")
         }
         for token in session.tokens {
-            guard let response = await HTTP.send(
-                URL(string: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus")!,
-                method: "POST", headers: [
-                    "Authorization": "Bearer \(token)", "Content-Type": "application/json",
-                    "Connect-Protocol-Version": "1", "x-cursor-client-type": "grok-bot", "x-ghost-mode": "true",
-                ], body: Data("{}".utf8)
-            ) else {
+            guard
+                let response = await HTTP.send(
+                    URL(string: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus")!,
+                    method: "POST",
+                    headers: [
+                        "Authorization": "Bearer \(token)", "Content-Type": "application/json",
+                        "Connect-Protocol-Version": "1", "x-cursor-client-type": "grok-bot", "x-ghost-mode": "true",
+                    ], body: Data("{}".utf8)
+                )
+            else {
                 return .problem(id: "grok-bot", name: "Grok Bot", tone: .failed, note: "Can't reach Grok Bot.")
             }
             if response.0 == 401 || response.0 == 403 { continue }
             guard response.0 == 200, let body = JSON.object(from: response.1) else {
-                return .problem(id: "grok-bot", name: "Grok Bot", tone: .failed,
-                                note: "Couldn't read Grok Bot usage (HTTP \(response.0)).")
+                return .problem(
+                    id: "grok-bot", name: "Grok Bot", tone: .failed,
+                    note: "Couldn't read Grok Bot usage (HTTP \(response.0)).")
             }
             return QuotaParsing.grokBot(body)
         }
@@ -256,12 +268,14 @@ struct UsageService: Sendable {
         }
         if period.0 == 401 || period.0 == 403 { return nil }
         guard period.0 == 200, let body = JSON.object(from: period.1) else {
-            return .problem(id: "cursor", name: "Cursor", tone: .failed, note: HTTP.message(status: period.0, data: period.1))
+            return .problem(
+                id: "cursor", name: "Cursor", tone: .failed, note: HTTP.message(status: period.0, data: period.1))
         }
 
         let planUsage = JSON.dictionary(JSON.value(body, key: "planUsage")) ?? [:]
         let limit = JSON.double(JSON.value(planUsage, key: "limit")) ?? 0
-        let spent = JSON.double(JSON.value(planUsage, key: "includedSpend"))
+        let spent =
+            JSON.double(JSON.value(planUsage, key: "includedSpend"))
             ?? JSON.double(JSON.value(planUsage, key: "totalSpend"))
             ?? 0
         let remaining = JSON.double(JSON.value(planUsage, key: "remaining"))
@@ -286,8 +300,9 @@ struct UsageService: Sendable {
         var plan = Format.planName(membership)
         var price = ""
         if let planResponse = await planCall, planResponse.0 == 200,
-           let planBody = JSON.object(from: planResponse.1),
-           let info = JSON.dictionary(JSON.value(planBody, key: "planInfo")) {
+            let planBody = JSON.object(from: planResponse.1),
+            let info = JSON.dictionary(JSON.value(planBody, key: "planInfo"))
+        {
             if let name = JSON.string(JSON.value(info, key: "planName")), !name.isEmpty {
                 plan = name
             }
@@ -304,7 +319,8 @@ struct UsageService: Sendable {
             let output = JSON.double(JSON.value(eventBody, key: "totalOutputTokens")) ?? 0
             let cache = JSON.double(JSON.value(eventBody, key: "totalCacheReadTokens")) ?? 0
             tokenLine = "\(Format.count(input)) in · \(Format.count(output)) out · \(Format.count(cache)) cache"
-            let models = JSON.array(JSON.value(eventBody, key: "aggregations")).compactMap { item -> (String, Double)? in
+            let models = JSON.array(JSON.value(eventBody, key: "aggregations")).compactMap {
+                item -> (String, Double)? in
                 guard let name = JSON.string(JSON.value(item, key: "modelIntent")) else { return nil }
                 let cents = JSON.double(JSON.value(item, key: "totalCents")) ?? 0
                 return (Format.modelName(name), cents)
@@ -353,10 +369,10 @@ struct UsageService: Sendable {
     private func openai() async -> ProviderSnapshot {
         let authURL = Paths.file(".codex", "auth.json")
         guard let data = try? Data(contentsOf: authURL),
-              let root = JSON.object(from: data),
-              let tokens = JSON.dictionary(JSON.value(root, key: "tokens")),
-              let access = JSON.string(JSON.value(tokens, key: "access_token")),
-              !access.isEmpty
+            let root = JSON.object(from: data),
+            let tokens = JSON.dictionary(JSON.value(root, key: "tokens")),
+            let access = JSON.string(JSON.value(tokens, key: "access_token")),
+            !access.isEmpty
         else {
             return .problem(id: "openai", name: "Codex", tone: .missing, note: "No Codex session. Run codex login.")
         }
@@ -368,14 +384,17 @@ struct UsageService: Sendable {
         if let account = JSON.string(JSON.value(tokens, key: "account_id")), !account.isEmpty {
             headers["ChatGPT-Account-Id"] = account
         }
-        guard let response = await HTTP.send(URL(string: "https://chatgpt.com/backend-api/wham/usage")!, headers: headers) else {
+        guard
+            let response = await HTTP.send(URL(string: "https://chatgpt.com/backend-api/wham/usage")!, headers: headers)
+        else {
             return .problem(id: "openai", name: "Codex", tone: .failed, note: "Can't reach Codex.")
         }
         if response.0 == 401 || response.0 == 403 {
             return .signInRequired(id: "openai", name: "Codex", note: "Codex session expired. Run codex login.")
         }
         guard response.0 == 200, let body = JSON.object(from: response.1) else {
-            return .problem(id: "openai", name: "Codex", tone: .failed, note: HTTP.message(status: response.0, data: response.1))
+            return .problem(
+                id: "openai", name: "Codex", tone: .failed, note: HTTP.message(status: response.0, data: response.1))
         }
 
         let rate = JSON.dictionary(JSON.value(body, key: "rate_limit")) ?? [:]
@@ -396,9 +415,10 @@ struct UsageService: Sendable {
         }
         var lines: [String] = []
         if let credits = JSON.dictionary(JSON.value(body, key: "credits")),
-           JSON.bool(JSON.value(credits, key: "has_credits")) == true,
-           let balance = JSON.double(JSON.value(credits, key: "balance")),
-           balance > 0 {
+            JSON.bool(JSON.value(credits, key: "has_credits")) == true,
+            let balance = JSON.double(JSON.value(credits, key: "balance")),
+            balance > 0
+        {
             lines.append("Credits \(Format.count(balance))")
         }
         return ProviderSnapshot(
@@ -450,7 +470,8 @@ struct UsageService: Sendable {
     private func opencode() async -> ProviderSnapshot {
         let database = opencodeDatabase()
         guard let database, FileManager.default.fileExists(atPath: database.path) else {
-            return .problem(id: "opencode", name: "OpenCode", tone: .missing, note: "Can't find the local OpenCode database.")
+            return .problem(
+                id: "opencode", name: "OpenCode", tone: .missing, note: "Can't find the local OpenCode database.")
         }
 
         let now = Date()
@@ -458,10 +479,14 @@ struct UsageService: Sendable {
         if key == nil {
             // Without a Go plan, local tokens are the only sign OpenCode is still in use.
             guard let recent = sessionStats(database: database, since: now.addingTimeInterval(-30 * 24 * 3600)) else {
-                return .problem(id: "opencode", name: "OpenCode", tone: .failed, note: "OpenCode has the database open, so it couldn't be read.")
+                return .problem(
+                    id: "opencode", name: "OpenCode", tone: .failed,
+                    note: "OpenCode has the database open, so it couldn't be read.")
             }
             guard recent.tokens > 0 else {
-                return .problem(id: "opencode", name: "OpenCode", tone: .missing, note: "No OpenCode activity on this Mac in the last 30 days.")
+                return .problem(
+                    id: "opencode", name: "OpenCode", tone: .missing,
+                    note: "No OpenCode activity on this Mac in the last 30 days.")
             }
         }
 
@@ -486,10 +511,12 @@ struct UsageService: Sendable {
         let startOfDay = calendar.startOfDay(for: now)
         let weekAgo = now.addingTimeInterval(-7 * 24 * 3600)
         guard let today = sessionStats(database: database, since: startOfDay),
-              let week = sessionStats(database: database, since: weekAgo),
-              let all = sessionStats(database: database, since: nil)
+            let week = sessionStats(database: database, since: weekAgo),
+            let all = sessionStats(database: database, since: nil)
         else {
-            return .problem(id: "opencode", name: "OpenCode", tone: .failed, note: "OpenCode has the database open, so it couldn't be read.")
+            return .problem(
+                id: "opencode", name: "OpenCode", tone: .failed,
+                note: "OpenCode has the database open, so it couldn't be read.")
         }
 
         let chips = [
@@ -499,7 +526,8 @@ struct UsageService: Sendable {
         ]
         var lines: [String] = []
         if all.cache > 0 {
-            lines.append("Cache read \(Format.count(all.cache)) · estimated cost \(Format.money(cents: all.cost * 100))")
+            lines.append(
+                "Cache read \(Format.count(all.cache)) · estimated cost \(Format.money(cents: all.cost * 100))")
         } else if all.cost > 0 {
             lines.append("Estimated cost \(Format.money(cents: all.cost * 100))")
         }
@@ -533,22 +561,22 @@ struct UsageService: Sendable {
         let binds: [Int64]
         if let since {
             sql = """
-            SELECT COUNT(*) AS sessions,
-                   COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning), 0) AS tokens,
-                   COALESCE(SUM(tokens_cache_read), 0) AS cache,
-                   COALESCE(SUM(cost), 0) AS cost
-            FROM session
-            WHERE time_updated >= ?
-            """
+                SELECT COUNT(*) AS sessions,
+                       COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning), 0) AS tokens,
+                       COALESCE(SUM(tokens_cache_read), 0) AS cache,
+                       COALESCE(SUM(cost), 0) AS cost
+                FROM session
+                WHERE time_updated >= ?
+                """
             binds = [Int64(since.timeIntervalSince1970 * 1000)]
         } else {
             sql = """
-            SELECT COUNT(*) AS sessions,
-                   COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning), 0) AS tokens,
-                   COALESCE(SUM(tokens_cache_read), 0) AS cache,
-                   COALESCE(SUM(cost), 0) AS cost
-            FROM session
-            """
+                SELECT COUNT(*) AS sessions,
+                       COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning), 0) AS tokens,
+                       COALESCE(SUM(tokens_cache_read), 0) AS cache,
+                       COALESCE(SUM(cost), 0) AS cost
+                FROM session
+                """
             binds = []
         }
         guard let row = SQLite.query(path: database.path, sql: sql, binds: binds)?.first else { return nil }
@@ -562,19 +590,21 @@ struct UsageService: Sendable {
 
     private func modelLine(database: URL, since: Date) -> String? {
         let sql = """
-        SELECT model,
-               SUM(tokens_input + tokens_output + tokens_reasoning) AS tokens
-        FROM session
-        WHERE time_updated >= ? AND model IS NOT NULL AND model != ''
-        GROUP BY model
-        ORDER BY tokens DESC
-        LIMIT 8
-        """
-        guard let rows = SQLite.query(
-            path: database.path,
-            sql: sql,
-            binds: [Int64(since.timeIntervalSince1970 * 1000)]
-        ), !rows.isEmpty else { return nil }
+            SELECT model,
+                   SUM(tokens_input + tokens_output + tokens_reasoning) AS tokens
+            FROM session
+            WHERE time_updated >= ? AND model IS NOT NULL AND model != ''
+            GROUP BY model
+            ORDER BY tokens DESC
+            LIMIT 8
+            """
+        guard
+            let rows = SQLite.query(
+                path: database.path,
+                sql: sql,
+                binds: [Int64(since.timeIntervalSince1970 * 1000)]
+            ), !rows.isEmpty
+        else { return nil }
         var totals: [String: Double] = [:]
         for row in rows {
             let name = Format.modelName(row["model"] ?? "")
@@ -613,9 +643,9 @@ struct UsageService: Sendable {
             guard let data = try? Data(contentsOf: url), let root = JSON.object(from: data) else { continue }
             for name in ["opencode-go", "opencode"] {
                 guard let entry = JSON.dictionary(JSON.value(root, key: name)),
-                      JSON.string(JSON.value(entry, key: "type")) == "api",
-                      let key = JSON.string(JSON.value(entry, key: "key")),
-                      !key.isEmpty
+                    JSON.string(JSON.value(entry, key: "type")) == "api",
+                    let key = JSON.string(JSON.value(entry, key: "key")),
+                    !key.isEmpty
                 else { continue }
                 return key
             }
@@ -624,25 +654,27 @@ struct UsageService: Sendable {
     }
 
     private func openCodeGo(key: String) async -> [MeterBar]? {
-        guard let response = await HTTP.send(
-            URL(string: "https://opencode.ai/zen/go/v1/usage")!,
-            headers: ["Accept": "application/json", "Authorization": "Bearer \(key)"]
-        ), response.0 == 200, let body = JSON.object(from: response.1),
-              let usage = JSON.dictionary(JSON.value(body, key: "usage"))
+        guard
+            let response = await HTTP.send(
+                URL(string: "https://opencode.ai/zen/go/v1/usage")!,
+                headers: ["Accept": "application/json", "Authorization": "Bearer \(key)"]
+            ), response.0 == 200, let body = JSON.object(from: response.1),
+            let usage = JSON.dictionary(JSON.value(body, key: "usage"))
         else { return nil }
         let windows: [(String, String)] = [("rolling", "5 hours"), ("weekly", "Week"), ("monthly", "Month")]
         var bars: [MeterBar] = []
         for (name, label) in windows {
             guard let window = JSON.dictionary(JSON.value(usage, key: name)),
-                  JSON.string(JSON.value(window, key: "status")) == "ok",
-                  let percent = JSON.double(JSON.value(window, key: "percent"))
+                JSON.string(JSON.value(window, key: "status")) == "ok",
+                let percent = JSON.double(JSON.value(window, key: "percent"))
             else { continue }
-            bars.append(MeterBar(
-                id: name,
-                label: label,
-                usedPercent: percent,
-                detail: Format.reset(Clock.date(from: JSON.value(window, key: "resetsAt")))
-            ))
+            bars.append(
+                MeterBar(
+                    id: name,
+                    label: label,
+                    usedPercent: percent,
+                    detail: Format.reset(Clock.date(from: JSON.value(window, key: "resetsAt")))
+                ))
         }
         return bars.isEmpty ? nil : bars
     }
