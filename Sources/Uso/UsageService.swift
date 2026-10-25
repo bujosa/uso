@@ -71,10 +71,11 @@ struct UsageService: Sendable {
         guard let (status, data) = await billingCall else {
             return .problem(id: "grok", name: "Grok", tone: .failed, note: "Can't reach Grok.")
         }
+        if status == 401 || status == 403 {
+            return .signInRequired(id: "grok", name: "Grok", note: "Grok session expired. Run grok login.")
+        }
         guard status == 200, let body = JSON.object(from: data), let config = JSON.dictionary(JSON.value(body, key: "config")) else {
-            let tone: ProviderTone = (status == 401 || status == 403) ? .missing : .failed
-            let note = tone == .missing ? "Grok session expired. Run grok login." : HTTP.message(status: status, data: data)
-            return .problem(id: "grok", name: "Grok", tone: tone, note: note)
+            return .problem(id: "grok", name: "Grok", tone: .failed, note: HTTP.message(status: status, data: data))
         }
 
         let used = JSON.double(JSON.value(config, key: "creditUsagePercent")) ?? 0
@@ -182,46 +183,62 @@ struct UsageService: Sendable {
     // MARK: Grok Bot
 
     private func grokBot() async -> ProviderSnapshot {
-        let database = Paths.file("Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
-        guard let rows = SQLite.query(path: database.path, sql: "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'"),
-              let token = rows.first?["value"], !token.isEmpty else {
-            return .problem(id: "grok-bot", name: "Grok Bot", tone: .missing,
-                            note: "Open Cursor and sign in with the account you use in Grok Bot.")
+        // Grok Bot's allowance lives on any Cursor account, so only count it once the app has run on this Mac.
+        guard FileManager.default.fileExists(atPath: Paths.file("Library", "Application Support", "Grok Bot").path) else {
+            return .problem(id: "grok-bot", name: "Grok Bot", tone: .missing, note: "Grok Bot isn't set up on this Mac.")
         }
-        guard let response = await HTTP.send(
-            URL(string: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus")!,
-            method: "POST", headers: [
-                "Authorization": "Bearer \(token)", "Content-Type": "application/json",
-                "Connect-Protocol-Version": "1", "x-cursor-client-type": "grok-bot", "x-ghost-mode": "true",
-            ], body: Data("{}".utf8)
-        ) else {
-            return .problem(id: "grok-bot", name: "Grok Bot", tone: .failed, note: "Can't reach Grok Bot.")
+        let session = CursorSession.read()
+        guard !session.tokens.isEmpty else {
+            return .signInRequired(
+                id: "grok-bot", name: "Grok Bot",
+                note: session.isSealed
+                    ? "Cursor seals its sign-in. Run cursor-agent login once with the account you use in Grok Bot."
+                    : "Run cursor-agent login, or sign in to Cursor, with the account you use in Grok Bot.")
         }
-        guard response.0 == 200, let body = JSON.object(from: response.1) else {
-            let tone: ProviderTone = response.0 == 401 || response.0 == 403 ? .missing : .failed
-            return .problem(id: "grok-bot", name: "Grok Bot", tone: tone,
-                            note: tone == .missing ? "Cursor session rejected. Sign in again in Cursor." : "Couldn't read Grok Bot usage (HTTP \(response.0)).")
+        for token in session.tokens {
+            guard let response = await HTTP.send(
+                URL(string: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus")!,
+                method: "POST", headers: [
+                    "Authorization": "Bearer \(token)", "Content-Type": "application/json",
+                    "Connect-Protocol-Version": "1", "x-cursor-client-type": "grok-bot", "x-ghost-mode": "true",
+                ], body: Data("{}".utf8)
+            ) else {
+                return .problem(id: "grok-bot", name: "Grok Bot", tone: .failed, note: "Can't reach Grok Bot.")
+            }
+            if response.0 == 401 || response.0 == 403 { continue }
+            guard response.0 == 200, let body = JSON.object(from: response.1) else {
+                return .problem(id: "grok-bot", name: "Grok Bot", tone: .failed,
+                                note: "Couldn't read Grok Bot usage (HTTP \(response.0)).")
+            }
+            return QuotaParsing.grokBot(body)
         }
-        return QuotaParsing.grokBot(body)
+        return .signInRequired(
+            id: "grok-bot", name: "Grok Bot",
+            note: "Cursor rejected the session. Sign in again in Cursor or run cursor-agent login.")
     }
 
     // MARK: Cursor
 
     private func cursor() async -> ProviderSnapshot {
-        let database = Paths.file("Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
-        guard FileManager.default.fileExists(atPath: database.path),
-              let rows = SQLite.query(
-                path: database.path,
-                sql: "SELECT key, value FROM ItemTable WHERE key IN ('cursorAuth/accessToken', 'cursorAuth/stripeMembershipType')"
-              )
-        else {
-            return .problem(id: "cursor", name: "Cursor", tone: .missing, note: "No Cursor session. Open Cursor and sign in.")
-        }
-        let values = Dictionary(uniqueKeysWithValues: rows.map { ($0["key"] ?? "", $0["value"] ?? "") })
-        let token = values["cursorAuth/accessToken"] ?? ""
-        guard !token.isEmpty else {
+        let session = CursorSession.read()
+        guard !session.tokens.isEmpty else {
+            if session.isSealed {
+                return .signInRequired(
+                    id: "cursor", name: "Cursor",
+                    note: "Cursor seals its sign-in. Run cursor-agent login once so Uso can read your usage.")
+            }
             return .problem(id: "cursor", name: "Cursor", tone: .missing, note: "Cursor is not signed in on this Mac.")
         }
+        for token in session.tokens {
+            if let snapshot = await cursor(token: token, membership: session.membership) { return snapshot }
+        }
+        return .signInRequired(
+            id: "cursor", name: "Cursor",
+            note: "Cursor rejected the session. Sign in again in Cursor or run cursor-agent login.")
+    }
+
+    /// Returns nil when Cursor rejects the token, so the caller can try the next one.
+    private func cursor(token: String, membership: String) async -> ProviderSnapshot? {
         let headers = [
             "Authorization": "Bearer \(token)",
             "Content-Type": "application/json",
@@ -237,10 +254,9 @@ struct UsageService: Sendable {
         guard let period = await periodCall else {
             return .problem(id: "cursor", name: "Cursor", tone: .failed, note: "Can't reach Cursor.")
         }
+        if period.0 == 401 || period.0 == 403 { return nil }
         guard period.0 == 200, let body = JSON.object(from: period.1) else {
-            let tone: ProviderTone = (period.0 == 401 || period.0 == 403) ? .missing : .failed
-            let note = tone == .missing ? "Cursor session expired. Sign in again in the app." : HTTP.message(status: period.0, data: period.1)
-            return .problem(id: "cursor", name: "Cursor", tone: tone, note: note)
+            return .problem(id: "cursor", name: "Cursor", tone: .failed, note: HTTP.message(status: period.0, data: period.1))
         }
 
         let planUsage = JSON.dictionary(JSON.value(body, key: "planUsage")) ?? [:]
@@ -267,7 +283,7 @@ struct UsageService: Sendable {
             bars.append(MeterBar(id: "api", label: "API", usedPercent: api, detail: ""))
         }
 
-        var plan = Format.planName(values["cursorAuth/stripeMembershipType"] ?? "")
+        var plan = Format.planName(membership)
         var price = ""
         if let planResponse = await planCall, planResponse.0 == 200,
            let planBody = JSON.object(from: planResponse.1),
@@ -355,10 +371,11 @@ struct UsageService: Sendable {
         guard let response = await HTTP.send(URL(string: "https://chatgpt.com/backend-api/wham/usage")!, headers: headers) else {
             return .problem(id: "openai", name: "Codex", tone: .failed, note: "Can't reach Codex.")
         }
+        if response.0 == 401 || response.0 == 403 {
+            return .signInRequired(id: "openai", name: "Codex", note: "Codex session expired. Run codex login.")
+        }
         guard response.0 == 200, let body = JSON.object(from: response.1) else {
-            let tone: ProviderTone = (response.0 == 401 || response.0 == 403) ? .missing : .failed
-            let note = tone == .missing ? "Codex session expired. Run codex login." : HTTP.message(status: response.0, data: response.1)
-            return .problem(id: "openai", name: "Codex", tone: tone, note: note)
+            return .problem(id: "openai", name: "Codex", tone: .failed, note: HTTP.message(status: response.0, data: response.1))
         }
 
         let rate = JSON.dictionary(JSON.value(body, key: "rate_limit")) ?? [:]
@@ -436,11 +453,23 @@ struct UsageService: Sendable {
             return .problem(id: "opencode", name: "OpenCode", tone: .missing, note: "Can't find the local OpenCode database.")
         }
 
+        let now = Date()
+        let key = opencodeGoKey()
+        if key == nil {
+            // Without a Go plan, local tokens are the only sign OpenCode is still in use.
+            guard let recent = sessionStats(database: database, since: now.addingTimeInterval(-30 * 24 * 3600)) else {
+                return .problem(id: "opencode", name: "OpenCode", tone: .failed, note: "OpenCode has the database open, so it couldn't be read.")
+            }
+            guard recent.tokens > 0 else {
+                return .problem(id: "opencode", name: "OpenCode", tone: .missing, note: "No OpenCode activity on this Mac in the last 30 days.")
+            }
+        }
+
         var bars: [MeterBar] = []
         var plan = "Local"
         var headline = "Local use"
         var note = "Sessions on this Mac. Not a plan quota."
-        if let key = opencodeGoKey() {
+        if let key {
             if let quota = await openCodeGo(key: key) {
                 bars = quota
                 plan = "Go"
@@ -453,7 +482,6 @@ struct UsageService: Sendable {
             }
         }
 
-        let now = Date()
         let calendar = Calendar.current
         let startOfDay = calendar.startOfDay(for: now)
         let weekAgo = now.addingTimeInterval(-7 * 24 * 3600)

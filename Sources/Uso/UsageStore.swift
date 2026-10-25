@@ -28,16 +28,27 @@ final class UsageStore: ObservableObject {
     }
 
     var visibleProviders: [ProviderSnapshot] {
-        providers.filter { preferences.showsInPanel($0.id) }
+        providers.filter { showsInPanel($0.id) }
     }
 
+    /// The current reading decides; while a source is still loading, the last check stands in.
+    func isDetected(_ id: String) -> Bool {
+        if let snapshot = providers.first(where: { $0.id == id }), snapshot.tone != .loading {
+            return snapshot.isDetected
+        }
+        return preferences.detectedProviders.contains(id)
+    }
+
+    func showsInPanel(_ id: String) -> Bool { preferences.showsInPanel(id, detected: isDetected(id)) }
+    func showsInMenu(_ id: String) -> Bool { preferences.showsInMenu(id, detected: isDetected(id)) }
+
     func setShownInPanel(_ shown: Bool, id: String) {
-        if shown { preferences.hiddenPanelProviders.remove(id) } else { preferences.hiddenPanelProviders.insert(id) }
+        preferences.setShownInPanel(shown, id: id)
         savePreferences()
     }
 
     func setShownInMenu(_ shown: Bool, id: String) {
-        if shown { preferences.hiddenMenuProviders.remove(id) } else { preferences.hiddenMenuProviders.insert(id) }
+        preferences.setShownInMenu(shown, id: id)
         savePreferences()
     }
 
@@ -47,15 +58,12 @@ final class UsageStore: ObservableObject {
     }
 
     func showDetectedOnly() {
-        let missing = Set(ProviderAccount.all.map(\.id)).subtracting(providers.filter { $0.tone == .ready }.map(\.id))
-        preferences.hiddenPanelProviders = missing
-        preferences.hiddenMenuProviders = missing
+        preferences.followDetection()
         savePreferences()
     }
 
     func showAllSources() {
-        preferences.hiddenPanelProviders = []
-        preferences.hiddenMenuProviders = []
+        preferences.showAll(ProviderAccount.all.map(\.id))
         savePreferences()
     }
 
@@ -104,7 +112,7 @@ final class UsageStore: ObservableObject {
     }
 
     private func syncTicker() {
-        tickerLines = MenuTicker.lines(from: providers.filter { preferences.showsInMenu($0.id) })
+        tickerLines = MenuTicker.lines(from: providers.filter { showsInMenu($0.id) })
         guard !tickerLines.isEmpty else {
             menuTitle = "Usage"
             return
@@ -143,6 +151,14 @@ final class UsageStore: ObservableObject {
         }
         next.sort { order($0.id) < order($1.id) }
         providers = next
+        if item.isDetected != preferences.detectedProviders.contains(item.id) {
+            if item.isDetected {
+                preferences.detectedProviders.insert(item.id)
+            } else {
+                preferences.detectedProviders.remove(item.id)
+            }
+            preferences.save(to: defaults)
+        }
         let ready = visibleProviders.filter { $0.tone == .ready }
         hero = Pressure.hero(from: ready)
         syncTicker()

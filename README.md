@@ -4,7 +4,7 @@
 
 # Uso
 
-Menu bar app for macOS. It shows what is left on Grok, Grok Bot, Cursor, Codex, Claude, and OpenCode.
+Menu bar app for macOS. It shows what is left on Grok, Grok Bot, Cursor, Codex, Claude, and OpenCode. Only the services you use on this Mac appear.
 
 The menu bar cycles through the accounts, about 3 seconds each. Claude shows the 5-hour window, then the week. Cursor shows Auto, then included dollars. Click the item to open the panel. Click anywhere else, or press Escape, to hide it. Open a row for the full breakdown.
 
@@ -14,22 +14,24 @@ The panel opens with a short spring animation, staggered rows, a moving edge hig
   <img src="docs/panel.png" alt="Usage menu bar panel" width="328">
 </p>
 
-Requires macOS 14 or later on Apple silicon.
+Requires macOS 14 or later, on Apple silicon or Intel.
 
 ## Install
 
-Download the latest zip from the [releases page](https://github.com/bujosa/uso/releases/latest).
+Download the zip for your Mac from the [releases page](https://github.com/bujosa/uso/releases/latest): `apple-silicon` for M-series chips, `intel` for Intel processors. Apple menu > About This Mac shows which one you have.
 
 1. Unzip the file. You get `Uso.app`.
 2. Move `Uso.app` into Applications.
-3. Open it. If macOS says the app cannot be checked, right-click `Uso.app`, choose Open, then Open again.
+3. Open it. If macOS says the app cannot be checked, open System Settings > Privacy & Security and click Open Anyway. On macOS 14 you can instead right-click `Uso.app`, choose Open, then Open again.
 4. Look in the menu bar. The label cycles through each account.
 
 The app does not show a Dock icon. Quit it from the panel.
 
 Sign in with the Claude Code CLI. Uso rereads that live session for each refresh and does not log in, refresh the token, write the keychain, or save a copy of the credentials. A failed refresh keeps the last percentages on the row, labeled with the last successful reading time. Those old readings leave the menu bar rotation until the next successful refresh. A rejected or missing session clears the old account's numbers.
 
-For Grok Bot, sign in to Cursor with the same account you use in Grok Bot. Its weekly allowance is separate from the Grok Build credits. Uso uses Cursor's local session; it does not decrypt Grok Bot's credential storage.
+Cursor 3.27 and later seal the desktop sign-in so only Cursor can open it. Uso does not try. Run `cursor-agent login` once with the [Cursor CLI](https://cursor.com/cli), and Uso reads the CLI's session instead, without a password prompt. Older Cursor versions keep working from the desktop session.
+
+For Grok Bot, open the Grok Bot app on this Mac once, and sign in to Cursor (or the Cursor CLI) with the same account. Its weekly allowance is separate from the Grok Build credits. Uso uses Cursor's session; it does not decrypt Grok Bot's credential storage.
 
 ## From source
 
@@ -37,9 +39,9 @@ For Grok Bot, sign in to Cursor with the same account you use in Grok Bot. Its w
 ./scripts/install.sh
 ```
 
-That builds a release binary, installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed app and `dist/Uso-1.1.1-macOS.zip` without installing it.
+That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.2.0-macOS-apple-silicon.zip` and `dist/Uso-1.2.0-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
 
-Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, and preference persistence regression tests. Run `swift build -c release` to check the release build.
+Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, Cursor session, source detection, and preference persistence regression tests. Run `swift build -c release --arch arm64 --arch x86_64` to check the release build.
 
 ## What each row shows
 
@@ -58,9 +60,11 @@ The panel refreshes when you open it, and again every 3 minutes. The refresh but
 
 Click the gear in the panel, or press Command-comma, to open Settings. Accounts & plans lists every supported source, its detected plan, and its connection state. Free plans and local OpenCode activity are labeled separately. Claude Max shows the 5× or 20× tier when the session reports it; Grok Bot also shows the Cursor tier returned by its account.
 
-Each source has independent Panel and Menu bar switches. Choices are saved on this Mac and restored when Uso starts again. Hidden sources still appear in Settings, so you can show them again. Show detected only uses the last detected sources; Check now reruns detection. Manage account opens the provider's account website.
+A source appears once Uso finds a session for it on this Mac. One that needs attention, such as an expired session, stays visible with what to do. Sources you don't use stay out of the panel and menu bar, so there is nothing to set up. Grok Bot needs the Grok Bot app on this Mac. OpenCode without a Go key needs local activity in the last 30 days.
 
-General has open-at-login and opening-animation controls, plus Show all sources to restore visibility. macOS Reduce Motion takes priority over the animation switch. Open at login uses the macOS login item for this app.
+Each source has independent Panel and Menu bar switches. A switch you change overrides detection and is saved on this Mac. Every source still appears in Settings, so you can show it again. Show detected only clears your overrides; Check now reruns detection. Manage account opens the provider's account website.
+
+General has open-at-login and opening-animation controls, plus Show all sources to show every source, found or not. macOS Reduce Motion takes priority over the animation switch. Open at login uses the macOS login item for this app.
 
 ## Where the numbers come from
 
@@ -69,8 +73,8 @@ Uso reads the session each tool already saved on this Mac. It does not ask you t
 | Service | Local session | Usage endpoint |
 | --- | --- | --- |
 | Grok | `~/.grok/auth.json` | Grok CLI billing |
-| Grok Bot | Cursor's local database, same account as Grok Bot | Cursor dashboard `GetSandUsageStatus` |
-| Cursor | Cursor's local database | Cursor dashboard |
+| Grok Bot | Same Cursor session as below, same account as Grok Bot | Cursor dashboard `GetSandUsageStatus` |
+| Cursor | Cursor's local database, or keychain item `cursor-access-token` from the Cursor CLI | Cursor dashboard |
 | Codex | `~/.codex/auth.json` | Codex usage |
 | Claude | Login keychain item `Claude Code-credentials` | Claude OAuth usage |
 | OpenCode | `opencode.db` on this Mac | OpenCode Go, only if that key is present |
