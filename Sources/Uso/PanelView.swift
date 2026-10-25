@@ -27,6 +27,8 @@ struct PanelView: View {
 
     private var reduceMotion: Bool { systemReduceMotion || !store.preferences.animatesPanel }
 
+    private var isLooking: Bool { store.isRefreshing || store.providers.isEmpty }
+
     private var selected: ProviderSnapshot? {
         guard let selectedID else { return nil }
         return store.visibleProviders.first { $0.id == selectedID }
@@ -40,10 +42,11 @@ struct PanelView: View {
                     .transition(.opacity)
             } else if store.visibleProviders.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(store.providers.isEmpty ? "Reading accounts…" : "Choose what to show")
+                    Text(isLooking ? "Looking for your accounts…" : "Nothing to show")
                         .font(.subheadline.weight(.medium))
-                    Text("Manage your accounts and display choices in Settings.")
+                    Text("Uso lists the services signed in on this Mac. Sign in to one, or pick sources in Settings.")
                         .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button("Open Settings", action: openSettings)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 24)

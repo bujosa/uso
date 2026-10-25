@@ -126,7 +126,9 @@ actor ClaudeUsageClient {
             return problem(.failed, "Claude asked to wait. Retry \(Format.reset(retryAt)).")
         }
         if response.status == 401 || response.status == 403 {
-            return problem(.missing, "Claude session rejected. Sign in again with the Claude Code CLI.")
+            var result = problem(.missing, "Claude session rejected. Sign in again with the Claude Code CLI.")
+            result.connection = .signInRequired
+            return result
         }
         guard response.status == 200, let body = JSON.object(from: response.data) else {
             return problem(.failed, "Couldn't read Claude usage (HTTP \(response.status)).")

@@ -62,7 +62,10 @@ struct ClaudeUsageClientTests {
     @Test func rejectedUnchangedSessionIsNotRetried() async {
         let fixture = Fixture([response(401)])
         let client = ClaudeUsageClient(readCredentials: { fixture.read($0) }, sendUsage: { fixture.send($0) })
-        #expect(await client.load().tone == .missing)
+        let snapshot = await client.load()
+        #expect(snapshot.tone == .missing)
+        #expect(snapshot.connection == .signInRequired)
+        #expect(snapshot.isDetected)
         #expect(fixture.recorded.count == 1)
     }
 

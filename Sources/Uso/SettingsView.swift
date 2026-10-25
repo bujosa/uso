@@ -58,7 +58,7 @@ struct SettingsView: View {
                     Text(store.isRefreshing ? "Checking your accounts…" : detectionSummary)
                         .font(.headline)
                     Text(
-                        "Plans come from the accounts signed in on this Mac. Choose what appears in the panel and menu bar."
+                        "Uso shows the services signed in on this Mac. Switch any source on or off; your choice sticks."
                     )
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -73,8 +73,8 @@ struct SettingsView: View {
                 .accessibilityLabel("Check accounts now")
             }
             HStack {
-                let panelCount = ProviderAccount.all.filter { store.preferences.showsInPanel($0.id) }.count
-                let menuCount = ProviderAccount.all.filter { store.preferences.showsInMenu($0.id) }.count
+                let panelCount = ProviderAccount.all.filter { store.showsInPanel($0.id) }.count
+                let menuCount = ProviderAccount.all.filter { store.showsInMenu($0.id) }.count
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(panelCount) in panel · \(menuCount) in menu bar")
                     if store.updatedAt != nil { Text("Last checked \(store.updatedLabel)") }
@@ -101,7 +101,7 @@ struct SettingsView: View {
     }
 
     private var detectionSummary: String {
-        let count = store.providers.filter { $0.tone == .ready }.count
+        let count = ProviderAccount.all.filter { store.isDetected($0.id) }.count
         if count == 0 { return "No sources verified yet" }
         return "\(count) \(count == 1 ? "source" : "sources") detected"
     }
@@ -136,7 +136,7 @@ struct SettingsView: View {
             }
             settingsCard {
                 Text("Display choices").font(.headline)
-                Text("Show every supported source in both the panel and menu bar again.")
+                Text("Show every supported source in both the panel and menu bar, even ones not found on this Mac.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Show all sources") { store.showAllSources() }
             }
@@ -184,7 +184,7 @@ private struct AccountSettingsRow: View {
             } else if snapshot.tone == .missing {
                 Text(snapshot.note ?? account.signInHint).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if account.id == "grok-bot" {
+            } else if account.id == "grok-bot", snapshot.tone == .ready {
                 Text("Uses the same account as Cursor. Its weekly allowance is separate from Grok Build.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -199,7 +199,7 @@ private struct AccountSettingsRow: View {
                 Toggle(
                     "Panel",
                     isOn: Binding(
-                        get: { store.preferences.showsInPanel(account.id) },
+                        get: { store.showsInPanel(account.id) },
                         set: { store.setShownInPanel($0, id: account.id) }
                     )
                 )
@@ -207,7 +207,7 @@ private struct AccountSettingsRow: View {
                 Toggle(
                     "Menu bar",
                     isOn: Binding(
-                        get: { store.preferences.showsInMenu(account.id) },
+                        get: { store.showsInMenu(account.id) },
                         set: { store.setShownInMenu($0, id: account.id) }
                     )
                 )
@@ -245,6 +245,7 @@ private struct AccountSettingsRow: View {
             switch connection {
             case .unverified: return "Not verified"
             case .keychainPermission: return "Access needed"
+            case .signInRequired: return "Sign in needed"
             }
         }
         switch snapshot.tone {
@@ -256,7 +257,7 @@ private struct AccountSettingsRow: View {
     }
 
     private var statusColor: Color {
-        if snapshot.warning != nil { return .orange }
+        if snapshot.warning != nil || snapshot.connection == .signInRequired { return .orange }
         switch snapshot.tone {
         case .ready: return snapshot.plan == "Local" ? .secondary : .green
         case .loading: return .secondary

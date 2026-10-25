@@ -24,6 +24,8 @@ enum ProviderTone: Sendable, Equatable {
 enum AccountConnection: Sendable, Equatable {
     case unverified
     case keychainPermission
+    /// This Mac has a session, but the service rejected it or Uso can't open it.
+    case signInRequired
 }
 
 struct ProviderSnapshot: Identifiable, Sendable, Equatable {
@@ -41,6 +43,15 @@ struct ProviderSnapshot: Identifiable, Sendable, Equatable {
     var connection: AccountConnection? = nil
 
     var isCurrent: Bool { tone == .ready && warning == nil }
+
+    /// Whether this Mac has a session for the source, even one that needs attention. Drives default visibility.
+    var isDetected: Bool {
+        switch tone {
+        case .ready, .failed: return true
+        case .missing: return connection != nil
+        case .loading: return false
+        }
+    }
 
     func keepingLastReading(_ previous: ProviderSnapshot?) -> ProviderSnapshot {
         guard tone == .failed, let previous, previous.tone == .ready else { return self }
@@ -98,6 +109,12 @@ struct ProviderSnapshot: Identifiable, Sendable, Equatable {
             warning: nil,
             tone: tone
         )
+    }
+
+    static func signInRequired(id: String, name: String, note: String) -> ProviderSnapshot {
+        var snapshot = problem(id: id, name: name, tone: .missing, note: note)
+        snapshot.connection = .signInRequired
+        return snapshot
     }
 }
 
