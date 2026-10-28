@@ -8,7 +8,9 @@ struct UsageService: Sendable {
         for await snapshot in loadIncremental() {
             snapshots.append(snapshot)
         }
-        return snapshots.sorted { Self.order[$0.id, default: 9] < Self.order[$1.id, default: 9] }
+        return UnifiedBilling.present(
+            snapshots.sorted { Self.order[$0.id, default: 9] < Self.order[$1.id, default: 9] },
+            keepMember: { _ in false })
     }
 
     func loadIncremental() -> AsyncStream<ProviderSnapshot> {
@@ -20,6 +22,7 @@ struct UsageService: Sendable {
                     group.addTask { await self.cursor() }
                     group.addTask { await self.openai() }
                     group.addTask { await self.claude() }
+                    group.addTask { await self.gemini() }
                     group.addTask { await self.opencode() }
                     for await snapshot in group {
                         continuation.yield(snapshot)
@@ -30,7 +33,9 @@ struct UsageService: Sendable {
         }
     }
 
-    private static let order = ["grok": 0, "grok-bot": 1, "cursor": 2, "openai": 3, "claude": 4, "opencode": 5]
+    private static let order = [
+        "grok": 0, "grok-bot": 1, "cursor": 2, "openai": 3, "claude": 4, "gemini": 5, "opencode": 6,
+    ]
 
     // MARK: Grok
 
@@ -81,22 +86,6 @@ struct UsageService: Sendable {
             return .problem(id: "grok", name: "Grok", tone: .failed, note: HTTP.message(status: status, data: data))
         }
 
-        let used = JSON.double(JSON.value(config, key: "creditUsagePercent")) ?? 0
-        let period = JSON.dictionary(JSON.value(config, key: "currentPeriod"))
-        let resets =
-            Clock.date(from: JSON.value(period ?? [:], key: "end"))
-            ?? Clock.date(from: JSON.value(config, key: "billingPeriodEnd"))
-        let window = windowLabel(JSON.string(JSON.value(period ?? [:], key: "type")))
-        var bars = [
-            MeterBar(id: "credits", label: window, usedPercent: used, detail: Format.reset(resets))
-        ]
-        for product in JSON.array(JSON.value(config, key: "productUsage")) {
-            guard let usedProduct = JSON.double(JSON.value(product, key: "usagePercent")),
-                let name = JSON.string(JSON.value(product, key: "product"))
-            else { continue }
-            bars.append(MeterBar(id: name, label: grokProduct(name), usedPercent: usedProduct, detail: ""))
-        }
-
         var plan = "Grok"
         if let settings = await settingsCall, settings.0 == 200,
             let settingsBody = JSON.object(from: settings.1),
@@ -105,27 +94,7 @@ struct UsageService: Sendable {
         {
             plan = tier
         }
-
-        var lines: [String] = []
-        if let prepaid = JSON.double(JSON.value(JSON.value(config, key: "prepaidBalance"), key: "val")), prepaid > 0 {
-            lines.append("Prepaid \(Format.money(cents: prepaid))")
-        }
-        if let onDemand = JSON.double(JSON.value(JSON.value(config, key: "onDemandUsed"), key: "val")), onDemand > 0 {
-            lines.append("On demand \(Format.money(cents: onDemand))")
-        }
-
-        return ProviderSnapshot(
-            id: "grok",
-            name: "Grok",
-            plan: plan,
-            headline: "\(Format.percent(max(0, 100 - used))) left",
-            bars: bars,
-            chips: [],
-            lines: lines,
-            note: nil,
-            warning: nil,
-            tone: .ready
-        )
+        return QuotaParsing.grok(config, plan: plan)
     }
 
     private func refreshGrok(_ entry: [String: Any]) async -> [String: Any]? {
@@ -165,25 +134,6 @@ struct UsageService: Sendable {
         ]
         if !userID.isEmpty { headers["x-userid"] = userID }
         return headers
-    }
-
-    private func grokProduct(_ name: String) -> String {
-        switch name {
-        case "GrokBuild": return "Build"
-        case "GrokImagine": return "Imagine"
-        case "GrokChat": return "Chat"
-        case "GrokVoice": return "Voice"
-        default: return name
-        }
-    }
-
-    private func windowLabel(_ raw: String?) -> String {
-        switch raw {
-        case "USAGE_PERIOD_TYPE_WEEKLY": return "Week"
-        case "USAGE_PERIOD_TYPE_MONTHLY": return "Month"
-        case "USAGE_PERIOD_TYPE_DAILY": return "Day"
-        default: return "Period"
-        }
     }
 
     // MARK: Grok Bot
@@ -272,48 +222,39 @@ struct UsageService: Sendable {
                 id: "cursor", name: "Cursor", tone: .failed, note: HTTP.message(status: period.0, data: period.1))
         }
 
-        let planUsage = JSON.dictionary(JSON.value(body, key: "planUsage")) ?? [:]
-        let limit = JSON.double(JSON.value(planUsage, key: "limit")) ?? 0
-        let spent =
-            JSON.double(JSON.value(planUsage, key: "includedSpend"))
-            ?? JSON.double(JSON.value(planUsage, key: "totalSpend"))
-            ?? 0
-        let remaining = JSON.double(JSON.value(planUsage, key: "remaining"))
-        var bars: [MeterBar] = []
-        if let auto = JSON.double(JSON.value(planUsage, key: "autoPercentUsed")) {
-            bars.append(MeterBar(id: "auto", label: "Auto", usedPercent: auto, detail: "Other models"))
-        }
-        if limit > 0 {
-            let used = min(100, spent / limit * 100)
-            let detail: String
-            if let remaining {
-                detail = Format.money(cents: remaining)
-            } else {
-                detail = "\(Format.money(cents: spent)) of \(Format.money(cents: limit))"
-            }
-            bars.append(MeterBar(id: "included", label: "Included", usedPercent: used, detail: detail))
-        }
-        if let api = JSON.double(JSON.value(planUsage, key: "apiPercentUsed")) {
-            bars.append(MeterBar(id: "api", label: "API", usedPercent: api, detail: ""))
-        }
-
         var plan = Format.planName(membership)
         var price = ""
+        var merged = false
+        var includedReset: Date?
         if let planResponse = await planCall, planResponse.0 == 200,
-            let planBody = JSON.object(from: planResponse.1),
-            let info = JSON.dictionary(JSON.value(planBody, key: "planInfo"))
+            let planBody = JSON.object(from: planResponse.1)
         {
+            let info = JSON.dictionary(JSON.value(planBody, key: "planInfo")) ?? [:]
             if let name = JSON.string(JSON.value(info, key: "planName")), !name.isEmpty {
                 plan = name
             }
             price = JSON.string(JSON.value(info, key: "price")) ?? ""
+            merged =
+                JSON.bool(JSON.value(planBody, key: "isMerged")) == true
+                || JSON.bool(JSON.value(info, key: "isMerged")) == true
+            includedReset =
+                Clock.date(from: JSON.value(planBody, key: "includedUsageResetsAt"))
+                ?? Clock.date(from: JSON.value(info, key: "includedUsageResetsAt"))
         }
         if !price.isEmpty {
             plan = plan.isEmpty ? price : "\(plan) · \(price)"
         }
 
-        var lines: [String] = []
+        let planUsage = JSON.dictionary(JSON.value(body, key: "planUsage")) ?? [:]
+        let limit = JSON.double(JSON.value(planUsage, key: "limit")) ?? 0
+        let auto = JSON.double(JSON.value(planUsage, key: "autoPercentUsed"))
+        let api = JSON.double(JSON.value(planUsage, key: "apiPercentUsed"))
+        if !merged, limit <= 0, let auto, let api, auto == api {
+            merged = true
+        }
+
         var tokenLine = ""
+        var modelLine: String?
         if let events = await eventsCall, events.0 == 200, let eventBody = JSON.object(from: events.1) {
             let input = JSON.double(JSON.value(eventBody, key: "totalInputTokens")) ?? 0
             let output = JSON.double(JSON.value(eventBody, key: "totalOutputTokens")) ?? 0
@@ -328,40 +269,17 @@ struct UsageService: Sendable {
             .sorted { $0.1 > $1.1 }
             .prefix(3)
             if !models.isEmpty {
-                lines.append(models.map { "\($0.0) \(Format.money(cents: $0.1))" }.joined(separator: " · "))
+                modelLine = models.map { "\($0.0) \(Format.money(cents: $0.1))" }.joined(separator: " · ")
             }
         }
-        if let end = Clock.date(from: JSON.value(body, key: "billingCycleEnd")) {
+        if !merged, let end = Clock.date(from: JSON.value(body, key: "billingCycleEnd")) {
             let when = Format.reset(end).replacingOccurrences(of: " d", with: " days")
             tokenLine = tokenLine.isEmpty ? "Resets \(when)" : tokenLine + " · resets \(when)"
         }
-        if !tokenLine.isEmpty {
-            lines.insert(tokenLine, at: 0)
-        }
 
-        let headline: String
-        if let auto = bars.first(where: { $0.id == "auto" }) {
-            headline = "\(Format.percent(max(0, 100 - auto.usedPercent))) left"
-        } else if let remaining {
-            headline = "\(Format.money(cents: remaining)) left"
-        } else if let first = bars.first {
-            headline = "\(Format.percent(max(0, 100 - first.usedPercent))) left"
-        } else {
-            headline = "No allowance"
-        }
-
-        return ProviderSnapshot(
-            id: "cursor",
-            name: "Cursor",
-            plan: plan,
-            headline: headline,
-            bars: bars,
-            chips: [],
-            lines: lines,
-            note: nil,
-            warning: nil,
-            tone: .ready
-        )
+        return QuotaParsing.cursor(
+            period: body, plan: plan, merged: merged, includedReset: includedReset, tokenLine: tokenLine,
+            modelLine: modelLine)
     }
 
     // MARK: OpenAI / Codex
@@ -463,6 +381,88 @@ struct UsageService: Sendable {
 
     private func claude() async -> ProviderSnapshot {
         await claudeClient.load()
+    }
+
+    // MARK: Gemini / Antigravity
+
+    private func gemini() async -> ProviderSnapshot {
+        guard var session = GeminiSession.read() else {
+            return .problem(
+                id: "gemini", name: "Gemini", tone: .missing,
+                note: "No session. Run agy and sign in with Google.")
+        }
+        if GeminiSession.needsRefresh(session), let refreshed = await refreshGemini(session) {
+            session.accessToken = refreshed
+        }
+        let quotaURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
+        let planURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
+        let empty = Data("{}".utf8)
+        let planRequest =
+            (try? JSONSerialization.data(
+                withJSONObject: [
+                    "metadata": [
+                        "ideType": "IDE_UNSPECIFIED",
+                        "platform": "PLATFORM_UNSPECIFIED",
+                        "pluginType": "GEMINI",
+                    ]
+                ])) ?? empty
+
+        func snapshot(token: String) async -> ProviderSnapshot? {
+            let headers = [
+                "Accept": "application/json",
+                "Authorization": "Bearer \(token)",
+                "Content-Type": "application/json",
+                "User-Agent": "antigravity-cli",
+            ]
+            async let quotaCall = HTTP.send(quotaURL, method: "POST", headers: headers, body: empty)
+            async let planCall = HTTP.send(planURL, method: "POST", headers: headers, body: planRequest)
+            guard let quota = await quotaCall else {
+                return .problem(id: "gemini", name: "Gemini", tone: .failed, note: "Can't reach Gemini.")
+            }
+            if quota.0 == 401 || quota.0 == 403 {
+                _ = await planCall
+                return nil
+            }
+            guard quota.0 == 200, let body = JSON.object(from: quota.1) else {
+                _ = await planCall
+                return .problem(
+                    id: "gemini", name: "Gemini", tone: .failed, note: HTTP.message(status: quota.0, data: quota.1))
+            }
+            return QuotaParsing.gemini(body, plan: geminiPlan(from: await planCall))
+        }
+
+        if let first = await snapshot(token: session.accessToken) { return first }
+        if let refreshed = await refreshGemini(session), let retry = await snapshot(token: refreshed) {
+            return retry
+        }
+        return .signInRequired(
+            id: "gemini", name: "Gemini", note: "Gemini session expired. Run agy and sign in with Google.")
+    }
+
+    private func geminiPlan(from call: (Int, Data)?) -> String {
+        guard let call, call.0 == 200, let body = JSON.object(from: call.1) else { return "Gemini" }
+        return Format.geminiPlan(from: body)
+    }
+
+    private func refreshGemini(_ session: GeminiCredentials) async -> String? {
+        guard let refresh = session.refreshToken, !refresh.isEmpty,
+            let url = URL(string: "https://oauth2.googleapis.com/token")
+        else { return nil }
+        let body = formEncode([
+            "grant_type": "refresh_token",
+            "refresh_token": refresh,
+            "client_id": GeminiSession.oauthClientID,
+            "client_secret": GeminiSession.oauthClientSecret,
+        ])
+        guard
+            let (status, data) = await HTTP.send(
+                url, method: "POST",
+                headers: [
+                    "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json",
+                ], body: body), status == 200, let payload = JSON.object(from: data),
+            let access = JSON.string(JSON.value(payload, key: "access_token")), !access.isEmpty
+        else { return nil }
+        return access
     }
 
     // MARK: OpenCode

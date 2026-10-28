@@ -184,8 +184,8 @@ private struct AccountSettingsRow: View {
             } else if snapshot.tone == .missing {
                 Text(snapshot.note ?? account.signInHint).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if account.id == "grok-bot", snapshot.tone == .ready {
-                Text("Uses the same account as Cursor. Its weekly allowance is separate from Grok Build.")
+            } else if snapshot.tone == .ready, snapshot.sharedPool != .none, let note = snapshot.note {
+                Text(note)
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

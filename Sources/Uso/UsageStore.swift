@@ -28,7 +28,9 @@ final class UsageStore: ObservableObject {
     }
 
     var visibleProviders: [ProviderSnapshot] {
-        providers.filter { showsInPanel($0.id) }
+        UnifiedBilling.present(
+            providers.filter { showsInPanel($0.id) },
+            keepMember: { preferences.shownPanelProviders.contains($0) })
     }
 
     /// The current reading decides; while a source is still loading, the last check stands in.
@@ -112,7 +114,10 @@ final class UsageStore: ObservableObject {
     }
 
     private func syncTicker() {
-        tickerLines = MenuTicker.lines(from: providers.filter { showsInMenu($0.id) })
+        tickerLines = MenuTicker.lines(
+            from: UnifiedBilling.present(
+                providers.filter { showsInMenu($0.id) },
+                keepMember: { preferences.shownMenuProviders.contains($0) }))
         guard !tickerLines.isEmpty else {
             menuTitle = "Usage"
             return
@@ -172,7 +177,8 @@ final class UsageStore: ObservableObject {
         case "cursor": return 2
         case "openai": return 3
         case "claude": return 4
-        case "opencode": return 5
+        case "gemini": return 5
+        case "opencode": return 6
         default: return 9
         }
     }

@@ -51,6 +51,107 @@ struct QuotaParsingTests {
         #expect(snapshot.bars.first?.label == "Trial")
     }
 
+    @Test func grokBotUnifiedDoesNotInventASecondWeek() {
+        let snapshot = QuotaParsing.grokBot(
+            parse(
+                """
+                {"isUnified":true,"usagePercent":8.693925444534706,"grokPlanLabel":"SuperGrok Heavy","cursorPlanName":"Ultra","billingBrand":"SAND_BILLING_BRAND_GROK"}
+                """))
+        #expect(snapshot.tone == .ready)
+        #expect(snapshot.bars.isEmpty)
+        #expect(snapshot.headline == "Shared weekly pool")
+        #expect(snapshot.plan == "Ultra · SuperGrok Heavy")
+        #expect(snapshot.note?.contains("same weekly pool") == true)
+        #expect(snapshot.sharedPool == .member)
+        #expect(MenuTicker.lines(from: [snapshot]).isEmpty)
+    }
+
+    @Test func grokUnifiedTurnsProductSharesIntoMixNotExtraMeters() {
+        let snapshot = QuotaParsing.grok(
+            parse(
+                """
+                {"creditUsagePercent":8,"isUnifiedBillingUser":true,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2026-11-03T22:48:40.363Z"},"productUsage":[{"product":"Cursor","usagePercent":6},{"product":"GrokBot","usagePercent":2}],"prepaidBalance":{"val":1500}}
+                """), plan: "SuperGrok Heavy")
+        #expect(snapshot.bars.map(\.id) == ["credits"])
+        #expect(snapshot.bars.first?.label == "Week")
+        #expect(snapshot.bars.first?.usedPercent == 8)
+        #expect(snapshot.headline == "92% left")
+        #expect(snapshot.lines == ["Mix · Cursor 6% · Grok Bot 2%", "Prepaid $15"])
+        #expect(snapshot.note?.contains("shared weekly pool") == true)
+        #expect(snapshot.sharedPool == .member)
+        #expect(MenuTicker.lines(from: [snapshot]) == ["Grok 92%"])
+    }
+
+    @Test func grokLegacyKeepsProductMeters() {
+        let snapshot = QuotaParsing.grok(
+            ["creditUsagePercent": 12, "productUsage": [["product": "GrokBuild", "usagePercent": 40]]], plan: "Grok")
+        #expect(snapshot.bars.map(\.id) == ["credits", "GrokBuild"])
+        #expect(snapshot.bars.map(\.label) == ["Period", "Build"])
+        #expect(snapshot.note == nil)
+    }
+
+    @Test func cursorMergedUsesSharedWeekAndDropsTheDuplicateApiBar() {
+        let reset = Date(timeIntervalSince1970: 1_762_207_720)
+        let snapshot = QuotaParsing.cursor(
+            period: [
+                "planUsage": ["autoPercentUsed": 8.693925444534706, "apiPercentUsed": 8.693925444534706]
+            ], plan: "Ultra", merged: true, includedReset: reset, tokenLine: "12 in · 4 out · 0 cache",
+            modelLine: nil)
+        #expect(snapshot.bars.map(\.id) == ["week"])
+        #expect(snapshot.bars.first?.label == "Week")
+        #expect(snapshot.headline == "91% left")
+        #expect(snapshot.lines == ["12 in · 4 out · 0 cache"])
+        #expect(snapshot.note?.contains("shared with Grok") == true)
+        #expect(snapshot.sharedPool == .owner)
+        #expect(MenuTicker.lines(from: [snapshot]) == ["X 91%"])
+    }
+
+    @Test func cursorLegacyKeepsAutoIncludedAndApi() {
+        let snapshot = QuotaParsing.cursor(
+            period: [
+                "planUsage": [
+                    "autoPercentUsed": 10, "apiPercentUsed": 3, "limit": 2000, "includedSpend": 500,
+                    "remaining": 1500,
+                ]
+            ], plan: "Pro", merged: false, includedReset: nil, tokenLine: "", modelLine: nil)
+        #expect(snapshot.bars.map(\.id) == ["auto", "included", "api"])
+        #expect(snapshot.bars.first?.detail == "Other models")
+        #expect(snapshot.headline == "90% left")
+        #expect(snapshot.note == nil)
+        #expect(MenuTicker.lines(from: [snapshot]) == ["Cursor Auto 90%", "Cursor $15"])
+    }
+
+    @Test func unifiedLayoutFoldsMembersIntoOneWeekAndKeepsGemini() {
+        let grok = QuotaParsing.grok(
+            parse(
+                """
+                {"creditUsagePercent":8,"isUnifiedBillingUser":true,"productUsage":[{"product":"Cursor","usagePercent":6},{"product":"GrokBot","usagePercent":2}],"prepaidBalance":{"val":1500}}
+                """), plan: "SuperGrok Heavy")
+        let bot = QuotaParsing.grokBot(["isUnified": true, "usagePercent": 8.693925444534706])
+        let cursor = QuotaParsing.cursor(
+            period: ["planUsage": ["autoPercentUsed": 8.693925444534706, "apiPercentUsed": 8.693925444534706]],
+            plan: "Ultra", merged: true, includedReset: nil, tokenLine: "12 in · 4 out", modelLine: nil)
+        let gemini = QuotaParsing.gemini(
+            parse(
+                """
+                {"groups":[{"displayName":"Gemini models","buckets":[
+                  {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":1},
+                  {"bucketId":"gemini-5h","window":"5h","remainingFraction":1}
+                ]}]}
+                """), plan: "Free")
+        let presented = UnifiedBilling.present([grok, bot, cursor, gemini], keepMember: { _ in false })
+        #expect(presented.map(\.id) == ["cursor", "gemini"])
+        #expect(presented[0].name == "X Subscription")
+        #expect(presented[0].plan == "Ultra · SuperGrok Heavy")
+        #expect(presented[0].lines == ["12 in · 4 out", "Mix · Cursor 6% · Grok Bot 2%", "Prepaid $15"])
+        #expect(presented[1].name == "Gemini")
+        #expect(MenuTicker.lines(from: presented) == ["X 91%", "Gemini 5h 100%", "Gemini wk 100%"])
+        #expect(UnifiedBilling.present([grok, bot], keepMember: { _ in false }).map(\.id) == ["grok", "grok-bot"])
+        let shownGrok = UnifiedBilling.present([grok, bot, cursor], keepMember: { $0 == "grok" })
+        #expect(shownGrok.map(\.id) == ["grok", "cursor"])
+        #expect(shownGrok[0].bars.isEmpty)
+    }
+
     @Test func claudeSortsWindowsAndUsesNewPercentages() {
         let snapshot = QuotaParsing.claude(
             parse(
@@ -152,6 +253,96 @@ struct QuotaParsingTests {
         let fresh = QuotaParsing.claude(["five_hour": ["utilization": 45]], plan: "Max")
         #expect(fresh.keepingLastReading(stale) == fresh)
         #expect(fresh.isCurrent)
+    }
+
+    @Test func geminiUsesRemainingFractionAndPrefersTheGeminiGroup() {
+        let snapshot = QuotaParsing.gemini(
+            parse(
+                """
+                {"groups":[
+                  {"displayName":"Claude and GPT models","buckets":[
+                    {"bucketId":"3p-weekly","window":"weekly","remainingFraction":0.4,"resetTime":"2026-11-04T02:45:25Z"},
+                    {"bucketId":"3p-5h","window":"5h","remainingFraction":0.7,"resetTime":"2026-10-28T07:45:25Z"}
+                  ]},
+                  {"displayName":"Gemini models","buckets":[
+                    {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.2},
+                    {"bucketId":"gemini-5h","window":"5h","remainingFraction":0.9}
+                  ]}
+                ]}
+                """), plan: "Google AI Pro")
+        #expect(snapshot.tone == .ready)
+        #expect(snapshot.plan == "Google AI Pro")
+        #expect(snapshot.bars.map(\.id) == ["session", "week", "claude:session", "claude:week"])
+        #expect(snapshot.bars.first?.label == "Session")
+        #expect(snapshot.bars.first?.usedPercent == 10)
+        #expect(snapshot.headline == "90% left")
+        #expect(MenuTicker.lines(from: [snapshot]) == ["Gemini 5h 90%", "Gemini wk 20%"])
+    }
+
+    @Test func geminiPromotesTheOnlyGroupWhenGeminiIsMissing() {
+        let snapshot = QuotaParsing.gemini(
+            parse(
+                """
+                {"groups":[{"displayName":"Claude and GPT models","buckets":[
+                  {"bucketId":"3p-weekly","window":"weekly","remainingFraction":1},
+                  {"bucketId":"3p-5h","window":"5h","remainingFraction":1}
+                ]}]}
+                """), plan: "Free")
+        #expect(snapshot.bars.map(\.id) == ["session", "week"])
+        #expect(snapshot.bars.map(\.usedPercent) == [0, 0])
+        #expect(snapshot.headline == "100% left")
+        #expect(snapshot.plan == "Free")
+    }
+
+    @Test(arguments: ["{}", "{\"groups\":[]}", "{\"groups\":[{\"buckets\":[{\"window\":\"5h\"}]}]}"])
+    func geminiInvalidWindowsFailInsteadOfReportingFullQuota(json: String) {
+        let snapshot = QuotaParsing.gemini(parse(json), plan: "Free")
+        #expect(snapshot.tone == .failed)
+        #expect(snapshot.bars.isEmpty)
+        #expect(MenuTicker.lines(from: [snapshot]).isEmpty)
+    }
+
+    @Test func geminiPlanMapsGoogleAITiers() {
+        #expect(Format.geminiPlan(tierID: "g1-pro-tier", name: "Google AI Pro") == "Google AI Pro")
+        #expect(Format.geminiPlan(tierID: "g1-ultra-tier", name: "Google AI Ultra") == "Google AI Ultra")
+        #expect(Format.geminiPlan(tierID: "free-tier", name: "Antigravity") == "Free")
+        #expect(Format.geminiPlan(tierID: "standard-tier", name: "Antigravity") == "Standard")
+        #expect(Format.geminiPlan(tierID: nil, name: nil) == "Gemini")
+    }
+
+    @Test func geminiPlanPrefersGoogleOnePaidTierOverAntigravityFree() {
+        #expect(
+            Format.geminiPlan(from: [
+                "currentTier": ["id": "free-tier", "name": "Antigravity"],
+                "paidTier": ["id": "g1-pro-tier", "name": "Google AI Pro"],
+            ]) == "Google AI Pro")
+        #expect(
+            Format.geminiPlan(from: [
+                "currentTier": ["id": "standard-tier", "name": "Antigravity"],
+                "paidTier": ["id": "g1-ultra-tier", "name": "Google AI Ultra"],
+            ]) == "Google AI Ultra")
+        #expect(
+            Format.geminiPlan(from: ["currentTier": ["id": "free-tier", "name": "Antigravity"]]) == "Free")
+    }
+
+    @Test func geminiOAuthClientIsThePublicAntigravityApp() {
+        #expect(GeminiSession.oauthClientID.hasPrefix("1071006060591-"))
+        #expect(GeminiSession.oauthClientID.hasSuffix(".apps.googleusercontent.com"))
+        #expect(GeminiSession.oauthClientSecret.hasPrefix("GOCSPX-"))
+        #expect(GeminiSession.oauthClientSecret.count == 35)
+    }
+
+    @Test func geminiSessionReadsGoKeyringJSON() {
+        let json = """
+            {"token":{"access_token":"ya29.example","refresh_token":"1//abc","expiry":"2026-10-28T00:00:00Z"},"auth_method":"consumer"}
+            """
+        let wrapped = Data("go-keyring-base64:".utf8) + Data(json.utf8).base64EncodedData()
+        let credentials = GeminiSession.credentials(from: wrapped)
+        #expect(credentials?.accessToken == "ya29.example")
+        #expect(credentials?.refreshToken == "1//abc")
+        #expect(credentials?.expiry != nil)
+        #expect(GeminiSession.credentials(from: Data(json.utf8))?.accessToken == "ya29.example")
+        #expect(GeminiSession.credentials(from: Data("{}".utf8)) == nil)
     }
 
     @Test func networkCacheIsDisabledForUsageReads() {

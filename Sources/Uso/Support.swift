@@ -150,6 +150,29 @@ enum Format {
         return name
     }
 
+    static func geminiPlan(tierID: String?, name: String?) -> String {
+        switch (tierID ?? "").lowercased() {
+        case "g1-pro-tier", "pro-tier": return "Google AI Pro"
+        case "g1-ultra-tier", "ultra-tier": return "Google AI Ultra"
+        case "free-tier": return "Free"
+        case "standard-tier": return "Standard"
+        default:
+            if let name, !name.isEmpty, name.lowercased() != "antigravity" { return name }
+            return "Gemini"
+        }
+    }
+
+    /// Google AI Pro/Ultra live on `paidTier`. `currentTier` is Antigravity's code-assist row and
+    /// stays `free-tier` even when Google One is active.
+    static func geminiPlan(from body: [String: Any]) -> String {
+        let paid = JSON.dictionary(JSON.value(body, key: "paidTier")) ?? [:]
+        let current = JSON.dictionary(JSON.value(body, key: "currentTier")) ?? [:]
+        if let id = JSON.string(paid["id"]), !id.isEmpty {
+            return geminiPlan(tierID: id, name: JSON.string(paid["name"]))
+        }
+        return geminiPlan(tierID: JSON.string(current["id"]), name: JSON.string(current["name"]))
+    }
+
     static func modelName(_ raw: String) -> String {
         if let data = raw.data(using: .utf8),
             let object = JSON.object(from: data),
@@ -310,10 +333,13 @@ enum Keychain {
     /// Reads a generic password through `/usr/bin/security`, the same path CodexBar
     /// and OpenClaw use. That binary is already allowed to read Claude Code's item,
     /// so a background refresh does not open a password dialog.
-    static func passwordViaSecurity(service: String) -> KeychainRead {
+    static func passwordViaSecurity(service: String, account: String? = nil) -> KeychainRead {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        process.arguments = ["find-generic-password", "-s", service, "-w"]
+        var arguments = ["find-generic-password", "-s", service]
+        if let account { arguments += ["-a", account] }
+        arguments.append("-w")
+        process.arguments = arguments
         let output = Pipe()
         let errors = Pipe()
         process.standardOutput = output

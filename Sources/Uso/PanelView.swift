@@ -332,25 +332,28 @@ private struct ProviderRow: View {
 
     private var primaryBar: MeterBar? {
         if provider.id == "cursor" {
-            return provider.bars.first { $0.id == "auto" } ?? provider.bars.first
+            return provider.bars.first { $0.id == "week" || $0.id == "auto" } ?? provider.bars.first
         }
         return provider.bars.first
     }
 
     private var showsBarLabels: Bool {
-        provider.id == "cursor" || provider.id == "claude" || provider.id == "openai"
+        provider.id == "cursor" || provider.id == "claude" || provider.id == "openai" || provider.id == "gemini"
     }
 
     private var listBars: [MeterBar] {
         switch provider.id {
         case "cursor":
-            let order = ["auto", "included"]
+            let order = ["week", "auto", "included"]
             return order.compactMap { id in provider.bars.first { $0.id == id } }
         case "claude":
             let order = ["session", "five", "weekly_all", "week"]
             return provider.bars
                 .filter { order.contains($0.id) }
                 .sorted { (order.firstIndex(of: $0.id) ?? 9) < (order.firstIndex(of: $1.id) ?? 9) }
+        case "gemini":
+            let order = ["session", "week"]
+            return order.compactMap { id in provider.bars.first { $0.id == id } }
         case "openai":
             return provider.bars.sorted { lhs, rhs in
                 (lhs.label == "Week" ? 1 : 0) < (rhs.label == "Week" ? 1 : 0)
@@ -603,6 +606,7 @@ enum Accent {
         case "cursor": return Color(red: 0.45, green: 0.62, blue: 0.98)
         case "openai": return Color(red: 0.36, green: 0.72, blue: 0.48)
         case "claude": return Color(red: 0.86, green: 0.48, blue: 0.34)
+        case "gemini": return Color(red: 0.33, green: 0.53, blue: 0.96)
         case "opencode": return Color(red: 0.28, green: 0.70, blue: 0.70)
         default: return Color.primary
         }

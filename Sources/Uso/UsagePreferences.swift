@@ -95,6 +95,10 @@ struct ProviderAccount: Identifiable {
             id: "claude", name: "Claude", signInHint: "Sign in with Claude Code, then check again.",
             accountURL: URL(string: "https://claude.ai/settings/usage")!),
         ProviderAccount(
+            id: "gemini", name: "Gemini",
+            signInHint: "Run agy, then sign in with the Google account that has Google AI Pro.",
+            accountURL: URL(string: "https://one.google.com/")!),
+        ProviderAccount(
             id: "opencode", name: "OpenCode",
             signInHint: "Use OpenCode on this Mac to detect local activity or your Go plan.",
             accountURL: URL(string: "https://opencode.ai/auth")!),

@@ -28,6 +28,15 @@ enum AccountConnection: Sendable, Equatable {
     case signInRequired
 }
 
+/// How a source relates to The X Subscription's shared weekly pool.
+enum SharedPool: Sendable, Equatable {
+    case none
+    /// Canonical week meter for the unified plan.
+    case owner
+    /// Same pool as the owner; not a second leftover quota.
+    case member
+}
+
 struct ProviderSnapshot: Identifiable, Sendable, Equatable {
     var id: String
     var name: String
@@ -41,6 +50,7 @@ struct ProviderSnapshot: Identifiable, Sendable, Equatable {
     var tone: ProviderTone
     var readAt: Date? = nil
     var connection: AccountConnection? = nil
+    var sharedPool: SharedPool = .none
 
     var isCurrent: Bool { tone == .ready && warning == nil }
 
@@ -93,6 +103,7 @@ struct ProviderSnapshot: Identifiable, Sendable, Equatable {
         .loading(id: "cursor", name: "Cursor"),
         .loading(id: "openai", name: "Codex"),
         .loading(id: "claude", name: "Claude"),
+        .loading(id: "gemini", name: "Gemini"),
         .loading(id: "opencode", name: "OpenCode"),
     ]
 
@@ -170,9 +181,64 @@ enum Pressure {
     }
 }
 
+/// Legacy Grok / Grok Bot / Cursor rows stay as they are. When The X Subscription is detected,
+/// the panel shows one week (the Cursor reading) and folds Grok mix, prepaid, and Grok Bot into it.
+enum UnifiedBilling {
+    static func present(_ providers: [ProviderSnapshot], keepMember: (String) -> Bool) -> [ProviderSnapshot] {
+        guard providers.contains(where: { $0.sharedPool == .owner && $0.tone == .ready }) else {
+            return providers
+        }
+        let hidden = providers.filter { $0.sharedPool == .member && $0.tone == .ready && !keepMember($0.id) }
+        return providers.compactMap { item in
+            if item.sharedPool == .owner { return fold(hidden, into: item) }
+            if item.sharedPool == .member, !keepMember(item.id) { return nil }
+            if item.sharedPool == .member { return demoteWeek(item) }
+            return item
+        }
+    }
+
+    private static func fold(_ members: [ProviderSnapshot], into owner: ProviderSnapshot) -> ProviderSnapshot {
+        var next = owner
+        next.name = "X Subscription"
+        var planParts = bits(owner.plan)
+        var lines = owner.lines
+        for member in members {
+            for part in bits(member.plan) where !planParts.contains(part) && !skipPlan.contains(part) {
+                planParts.append(part)
+            }
+            for line in member.lines where !line.isEmpty && !lines.contains(line) {
+                lines.append(line)
+            }
+        }
+        next.plan = planParts.joined(separator: " · ")
+        next.lines = lines
+        return next
+    }
+
+    private static func demoteWeek(_ item: ProviderSnapshot) -> ProviderSnapshot {
+        guard item.id == "grok" else { return item }
+        var next = item
+        next.bars = item.bars.filter { $0.id != "credits" }
+        return next
+    }
+
+    private static func bits(_ plan: String) -> [String] {
+        plan.split(separator: "·").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    private static let skipPlan: Set<String> = ["Grok", "Grok Bot", "Grok Bot Plan"]
+}
+
 enum MenuTicker {
     static func lines(from providers: [ProviderSnapshot]) -> [String] {
-        providers.filter(\.isCurrent).flatMap(lines(for:))
+        let current = providers.filter(\.isCurrent)
+        let cursorOwnsSharedWeek = current.contains {
+            $0.id == "cursor" && $0.bars.contains(where: { $0.id == "week" })
+        }
+        return current.flatMap { provider -> [String] in
+            if cursorOwnsSharedWeek, provider.id == "grok" { return [] }
+            return lines(for: provider)
+        }
     }
 
     private static func lines(for provider: ProviderSnapshot) -> [String] {
@@ -182,6 +248,10 @@ enum MenuTicker {
             return ["Grok \(remaining(bar))"]
         case "cursor":
             var lines: [String] = []
+            if let week = provider.bars.first(where: { $0.id == "week" }) {
+                let label = provider.sharedPool == .owner ? "X" : "Cursor"
+                lines.append("\(label) \(remaining(week))")
+            }
             if let auto = provider.bars.first(where: { $0.id == "auto" }) {
                 lines.append("Cursor Auto \(remaining(auto))")
             }
@@ -204,6 +274,12 @@ enum MenuTicker {
                 guard let bar = provider.bars.first(where: { $0.id == id }) else { return nil }
                 let tag = (id == "session" || id == "five") ? "5h" : "wk"
                 return "Claude \(tag) \(remaining(bar))"
+            }
+        case "gemini":
+            return ["session", "week"].compactMap { id in
+                guard let bar = provider.bars.first(where: { $0.id == id }) else { return nil }
+                let tag = id == "session" ? "5h" : "wk"
+                return "Gemini \(tag) \(remaining(bar))"
             }
         case "opencode":
             guard let week = provider.chips.first(where: { $0.id == "week" }) else { return [] }
