@@ -11,11 +11,7 @@ The menu bar cycles through the accounts, about 3 seconds each. Claude shows the
 The panel opens with a short spring animation, staggered rows, a moving edge highlight, and animated meters. macOS Reduce Motion disables these effects. Escape returns from a detail to the list, then closes the panel; Command-R refreshes the usage.
 
 <p align="center">
-  <img src="docs/panel.png" alt="Usage panel with X Subscription, Codex, Claude, Gemini, and OpenCode" width="328">
-</p>
-
-<p align="center">
-  <img src="docs/panel-detail.png" alt="X Subscription week, mix, and prepaid note" width="328">
+  <img src="docs/panel.gif" alt="Uso panel opening X Subscription: one shared week, then Codex, Claude, Gemini, and OpenCode" width="328">
 </p>
 
 Requires macOS 14 or later, on Apple silicon or Intel.
