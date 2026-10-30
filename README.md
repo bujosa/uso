@@ -20,6 +20,8 @@ The panel opens with a short spring animation, staggered rows, a moving edge hig
 
 Requires macOS 14 or later, on Apple silicon or Intel.
 
+For an API-price estimate of local Claude, Codex, Grok, and Pi logs, not remaining quota, see [Gaisan](https://github.com/bujosa/gaisan).
+
 ## Install
 
 Paste this in Terminal:
