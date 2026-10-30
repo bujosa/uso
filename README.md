@@ -6,7 +6,7 @@
 
 Menu bar app for macOS. It shows what is left on Grok, Grok Bot, Cursor, Codex, Claude, Gemini, and OpenCode. Only the services you use on this Mac appear.
 
-The menu bar cycles through the accounts, about 3 seconds each. Claude shows the 5-hour window, then the week. On The X Subscription the week is one shared pool; on a legacy Cursor plan, Auto then included dollars. Click the item to open the panel. Click anywhere else, or press Escape, to hide it. Open a row for the full breakdown.
+The menu bar cycles through the accounts, about 3 seconds each. Claude shows the week, the 5-hour window only while that limit is active, and included API credits when the plan has them. On The X Subscription the week is one shared pool; on a legacy Cursor plan, Auto then included dollars. Click the item to open the panel. Click anywhere else, or press Escape, to hide it. Open a row for the full breakdown.
 
 The panel opens with a short spring animation, staggered rows, a moving edge highlight, and animated meters. macOS Reduce Motion disables these effects. Escape returns from a detail to the list, then closes the panel; Command-R refreshes the usage.
 
@@ -58,7 +58,7 @@ For Gemini, run `agy` and sign in with the Google account that has Google AI Pro
 ./scripts/install.sh
 ```
 
-That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.3.0-macOS-apple-silicon.zip` and `dist/Uso-1.3.0-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
+That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.0-macOS-apple-silicon.zip` and `dist/Uso-1.4.0-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
 
 Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, Cursor session, source detection, and preference persistence regression tests. Run `swift build -c release --arch arm64 --arch x86_64` to check the release build. CI runs both, plus `swift format lint --strict` and a script check, on every pull request.
 
@@ -66,7 +66,7 @@ Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit
 
 - **X Subscription.** When Grok, Cursor, and Grok Bot report The X Subscription, the panel shows one week (the Cursor reading), plus Grok's mix and prepaid on that same row. Grok and Grok Bot stay in Settings; turn either on if you want the separate row. Legacy Cursor plans still show Grok, Grok Bot, and Cursor as their own quotas: Grok weekly credits plus product meters, Grok Bot's week or trial, Cursor Auto then included dollars.
 - **Codex.** The weekly window is on the row. A shorter window, when the account has one, sits above it.
-- **Claude.** Session and week are both on the row. A model week such as Fable, and the mix across Claude Code and the rest, are inside the row.
+- **Claude.** The week is on the row. The 5-hour session appears only while Anthropic marks it active (Pro, Max, and unverified Ultra). Verified Ultra drops that bar. Included monthly API credits, extra usage, and a banked limit reset show when the account returns them. A model week such as Fable, and the mix across Claude Code and the rest, are inside the row.
 - **Gemini.** Session and week for the Google account signed in to Antigravity (`agy`). Extra model groups, when the account returns them, are inside the row.
 - **OpenCode.** Local tokens for today, the last 7 days, and all time. This is sessions on this Mac, not a plan quota. An OpenCode Go key adds the official quota.
 
@@ -76,7 +76,7 @@ The panel refreshes when you open it, and again every 3 minutes. The refresh but
 
 ## Settings
 
-Click the gear in the panel, or press Command-comma, to open Settings. Accounts & plans lists every supported source, its detected plan, and its connection state. Free plans and local OpenCode activity are labeled separately. Claude Max shows the 5× or 20× tier when the session reports it; Grok Bot also shows the Cursor tier returned by its account. Gemini shows Google AI Pro or Ultra from the Google One paid tier when Antigravity reports it, otherwise Free.
+Click the gear in the panel, or press Command-comma, to open Settings. Accounts & plans lists every supported source, its detected plan, and its connection state. Free plans and local OpenCode activity are labeled separately. Claude shows Max or Ultra from the session (old Max 20× logins map to Ultra); Grok Bot also shows the Cursor tier returned by its account. Gemini shows Google AI Pro or Ultra from the Google One paid tier when Antigravity reports it, otherwise Free.
 
 A source appears once Uso finds a session for it on this Mac. One that needs attention, such as an expired session, stays visible with what to do. Sources you don't use stay out of the panel and menu bar, so there is nothing to set up. Grok Bot needs the Grok Bot app on this Mac. Gemini needs an Antigravity CLI (`agy`) sign-in. OpenCode without a Go key needs local activity in the last 30 days.
 

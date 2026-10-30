@@ -93,11 +93,14 @@ enum Format {
     }
 
     static func money(cents: Double) -> String {
-        let dollars = cents / 100
-        if abs(dollars.rounded() - dollars) < 0.005 {
-            return String(format: "$%.0f", dollars)
+        dollars(cents / 100)
+    }
+
+    static func dollars(_ value: Double) -> String {
+        if abs(value.rounded() - value) < 0.005 {
+            return String(format: "$%.0f", value)
         }
-        return String(format: "$%.2f", dollars)
+        return String(format: "$%.2f", value)
     }
 
     static func count(_ value: Double) -> String {
@@ -143,11 +146,15 @@ enum Format {
 
     static func claudePlan(subscription: String, tier: String?) -> String {
         guard !subscription.isEmpty else { return "Claude" }
-        let name = planName(subscription)
-        guard subscription.lowercased() == "max", let tier else { return name }
-        if tier == "default_claude_max_20x" { return "\(name) (20×)" }
-        if tier == "default_claude_max_5x" { return "\(name) (5×)" }
-        return name
+        switch subscription.lowercased() {
+        case "ultra":
+            return "Ultra"
+        case "max":
+            if tier == "default_claude_max_20x" { return "Ultra" }
+            return "Max"
+        default:
+            return planName(subscription)
+        }
     }
 
     static func geminiPlan(tierID: String?, name: String?) -> String {

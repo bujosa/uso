@@ -169,6 +169,7 @@ enum QuotaParsing {
 
     static func claude(_ body: [String: Any], plan: String) -> ProviderSnapshot {
         var bars: [MeterBar] = []
+        var declared = Set<String>()
         for item in JSON.array(body["limits"]) {
             guard let row = JSON.dictionary(item), let used = percent(row["percent"]),
                 let kind = JSON.string(row["kind"])
@@ -190,6 +191,10 @@ enum QuotaParsing {
                 label = name.map { "\($0) week" } ?? "Model week"
             default: continue
             }
+            declared.insert(id)
+            // Verified Ultra keeps a leftover session row with is_active=false. Don't show it,
+            // and don't let the legacy five_hour field put it back.
+            if id == "session", JSON.bool(row["is_active"]) == false { continue }
             guard !bars.contains(where: { $0.id == id }) else { continue }
             bars.append(
                 MeterBar(
@@ -206,15 +211,16 @@ enum QuotaParsing {
             ("seven_day_cowork", "surface:cowork", "Cowork week"),
         ]
         for (key, id, label) in legacy {
-            guard !bars.contains(where: { $0.id == id || $0.label == label }),
+            guard !declared.contains(id), !bars.contains(where: { $0.id == id || $0.label == label }),
                 let row = JSON.dictionary(body[key]), let used = percent(row["utilization"])
             else { continue }
             bars.append(
                 MeterBar(
                     id: id, label: label, usedPercent: used, detail: Format.reset(Clock.date(from: row["resets_at"]))))
         }
-        let order = ["session", "weekly_all"]
-        bars.sort { (order.firstIndex(of: $0.id) ?? 2) < (order.firstIndex(of: $1.id) ?? 2) }
+        if let api = apiCreditsBar(from: body) { bars.append(api) }
+        let order = ["session", "weekly_all", "api"]
+        bars.sort { (order.firstIndex(of: $0.id) ?? 3) < (order.firstIndex(of: $1.id) ?? 3) }
         guard let first = bars.first else {
             return .problem(
                 id: "claude", name: "Claude", tone: .failed, note: "Claude didn't return any usage windows.")
@@ -229,16 +235,68 @@ enum QuotaParsing {
             }
             if !parts.isEmpty { lines.append("Mix · " + parts.joined(separator: " · ")) }
         }
-        if let extra = JSON.dictionary(body["extra_usage"]), JSON.bool(extra["is_enabled"]) == true {
-            if let used = percent(extra["utilization"]) {
-                lines.append("Extra usage \(Format.percent(used)) used")
-            }
-        }
+        lines.append(contentsOf: extraUsageLines(from: body))
+        if let reset = limitResetLine(from: body) { lines.append(reset) }
         return ProviderSnapshot(
             id: "claude", name: "Claude", plan: plan,
             headline: "\(Format.percent(max(0, 100 - first.usedPercent))) left",
             bars: bars, chips: [], lines: lines, note: nil, warning: nil, tone: .ready
         )
+    }
+
+    /// Monthly API credits bundled with Max/Ultra. Anthropic currently ships this as an
+    /// obfuscated top-level window with `limit_dollars`; we match on that shape, not the key name.
+    private static func apiCreditsBar(from body: [String: Any]) -> MeterBar? {
+        for (_, value) in body {
+            guard let row = JSON.dictionary(value), let limit = JSON.double(row["limit_dollars"]),
+                limit.isFinite, limit > 0
+            else { continue }
+            let used = JSON.double(row["used_dollars"]) ?? 0
+            let remaining = JSON.double(row["remaining_dollars"]) ?? max(0, limit - used)
+            let usedPercent: Double
+            if let utilization = percent(row["utilization"]), utilization <= 100 {
+                usedPercent = utilization
+            } else {
+                usedPercent = min(100, (used / limit) * 100)
+            }
+            var bits = ["\(Format.dollars(remaining)) left"]
+            let reset = Format.reset(Clock.date(from: row["resets_at"]))
+            if !reset.isEmpty { bits.append(reset) }
+            return MeterBar(
+                id: "api", label: "API credits", usedPercent: usedPercent, detail: bits.joined(separator: " · "))
+        }
+        return nil
+    }
+
+    private static func extraUsageLines(from body: [String: Any]) -> [String] {
+        guard let extra = JSON.dictionary(body["extra_usage"]) else { return [] }
+        if JSON.bool(extra["is_enabled"]) == true {
+            if let used = percent(extra["utilization"]) {
+                return ["Extra usage \(Format.percent(used)) used"]
+            }
+            return ["Extra usage on"]
+        }
+        if JSON.bool(extra["credits_ever_enabled"]) == true {
+            return ["Extra usage off"]
+        }
+        return []
+    }
+
+    /// Banked "Reset for free" cards. Present only when Anthropic attaches an offer object.
+    private static func limitResetLine(from body: [String: Any]) -> String? {
+        var offers: [[String: Any]] = []
+        for (key, value) in body {
+            guard key.localizedCaseInsensitiveContains("offer"), let row = JSON.dictionary(value) else {
+                continue
+            }
+            offers.append(row)
+        }
+        guard let offer = offers.first else { return nil }
+        let title = JSON.string(offer["title"]) ?? JSON.string(offer["name"]) ?? "Limit reset"
+        let expiry = Format.reset(Clock.date(from: offer["expires_at"] ?? offer["expiry"]))
+        if expiry.isEmpty { return "\(title) available" }
+        if expiry.hasPrefix("in ") { return "\(title) available · expires \(expiry)" }
+        return "\(title) available · \(expiry)"
     }
 
     static func gemini(_ body: [String: Any], plan: String) -> ProviderSnapshot {

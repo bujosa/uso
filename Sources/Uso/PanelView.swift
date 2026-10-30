@@ -347,7 +347,7 @@ private struct ProviderRow: View {
             let order = ["week", "auto", "included"]
             return order.compactMap { id in provider.bars.first { $0.id == id } }
         case "claude":
-            let order = ["session", "five", "weekly_all", "week"]
+            let order = ["session", "five", "weekly_all", "week", "api"]
             return provider.bars
                 .filter { order.contains($0.id) }
                 .sorted { (order.firstIndex(of: $0.id) ?? 9) < (order.firstIndex(of: $1.id) ?? 9) }
@@ -364,6 +364,7 @@ private struct ProviderRow: View {
     }
 
     private func barRemainder(_ bar: MeterBar) -> String {
+        if bar.id == "api" { return bar.detail }
         let left = "\(Format.percent(max(0, 100 - bar.usedPercent))) left"
         if bar.detail.hasPrefix("in ") || bar.detail == "just reset" {
             return "\(left) · \(bar.detail)"

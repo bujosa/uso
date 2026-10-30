@@ -270,11 +270,17 @@ enum MenuTicker {
             }
         case "claude":
             let order = ["session", "five", "weekly_all", "week"]
-            return order.compactMap { id in
+            var lines = order.compactMap { id -> String? in
                 guard let bar = provider.bars.first(where: { $0.id == id }) else { return nil }
                 let tag = (id == "session" || id == "five") ? "5h" : "wk"
                 return "Claude \(tag) \(remaining(bar))"
             }
+            if let api = provider.bars.first(where: { $0.id == "api" }),
+                let money = api.detail.split(separator: " ").first, money.hasPrefix("$")
+            {
+                lines.append("Claude API \(money)")
+            }
+            return lines
         case "gemini":
             return ["session", "week"].compactMap { id in
                 guard let bar = provider.bars.first(where: { $0.id == id }) else { return nil }

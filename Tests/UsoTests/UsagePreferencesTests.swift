@@ -125,8 +125,9 @@ struct UsagePreferencesTests {
     }
 
     @Test func claudePlanUsesOnlyKnownTiers() {
-        #expect(Format.claudePlan(subscription: "max", tier: "default_claude_max_20x") == "Max (20×)")
-        #expect(Format.claudePlan(subscription: "max", tier: "default_claude_max_5x") == "Max (5×)")
+        #expect(Format.claudePlan(subscription: "max", tier: "default_claude_max_20x") == "Ultra")
+        #expect(Format.claudePlan(subscription: "max", tier: "default_claude_max_5x") == "Max")
+        #expect(Format.claudePlan(subscription: "ultra", tier: nil) == "Ultra")
         #expect(Format.claudePlan(subscription: "pro", tier: "default_claude_max_20x") == "Pro")
         #expect(Format.claudePlan(subscription: "max", tier: "unknown_20x") == "Max")
         #expect(Format.claudePlan(subscription: "", tier: nil) == "Claude")
