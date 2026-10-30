@@ -215,6 +215,59 @@ struct QuotaParsingTests {
         #expect(snapshot.bars.isEmpty)
     }
 
+    @Test func claudeInactiveSessionIsOmittedAndDoesNotComeBackFromLegacy() {
+        let snapshot = QuotaParsing.claude(
+            parse(
+                """
+                {"limits":[
+                  {"kind":"session","percent":3,"is_active":false,"resets_at":"2026-10-30T23:30:00Z"},
+                  {"kind":"weekly_all","percent":68,"is_active":true,"resets_at":"2026-11-02T00:00:00Z"},
+                  {"kind":"weekly_scoped","percent":7,"is_active":false,"scope":{"model":{"display_name":"Fable"}}}
+                ],"five_hour":{"utilization":99},"seven_day":{"utilization":88}}
+                """), plan: "Ultra")
+        #expect(snapshot.bars.map(\.label) == ["Week", "Fable week"])
+        #expect(snapshot.bars.map(\.usedPercent) == [68, 7])
+        #expect(snapshot.headline == "32% left")
+        #expect(MenuTicker.lines(from: [snapshot]) == ["Claude wk 32%"])
+    }
+
+    @Test func claudeMissingActiveFlagKeepsTheSessionBar() {
+        let snapshot = QuotaParsing.claude(
+            parse(
+                """
+                {"limits":[
+                  {"kind":"session","percent":5},
+                  {"kind":"weekly_all","percent":11}
+                ]}
+                """), plan: "Max")
+        #expect(snapshot.bars.map(\.label) == ["Session", "Week"])
+        #expect(MenuTicker.lines(from: [snapshot]) == ["Claude 5h 95%", "Claude wk 89%"])
+    }
+
+    @Test func claudeShowsApiCreditsExtraUsageAndABankedReset() {
+        let snapshot = QuotaParsing.claude(
+            parse(
+                """
+                {"limits":[{"kind":"weekly_all","percent":40,"is_active":true}],
+                 "mystery_window":{
+                   "utilization":20,
+                   "limit_dollars":250,
+                   "used_dollars":50,
+                   "remaining_dollars":200,
+                   "resets_at":"2026-11-05T07:59:00Z"
+                 },
+                 "extra_usage":{"is_enabled":false,"credits_ever_enabled":true,"user_disabled":true},
+                 "amber_cistern_offer":{"title":"Full reset","expires_at":"2026-11-30T23:59:00Z"}}
+                """), plan: "Ultra")
+        #expect(snapshot.bars.map(\.id) == ["weekly_all", "api"])
+        #expect(snapshot.bars[1].label == "API credits")
+        #expect(snapshot.bars[1].usedPercent == 20)
+        #expect(snapshot.bars[1].detail.hasPrefix("$200 left"))
+        #expect(snapshot.lines.contains("Extra usage off"))
+        #expect(snapshot.lines.contains(where: { $0.hasPrefix("Full reset available") }))
+        #expect(MenuTicker.lines(from: [snapshot]) == ["Claude wk 60%", "Claude API $200"])
+    }
+
     @Test func claudeBreakdownDoesNotChangeRemainingQuota() {
         let snapshot = QuotaParsing.claude(
             parse(

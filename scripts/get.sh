@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs or updates Uso from the latest GitHub release, picking the build for this Mac's chip:
 #   curl -fsSL https://raw.githubusercontent.com/bujosa/uso/main/scripts/get.sh | bash
-# USO_VERSION=1.3.0 picks a release. USO_INSTALL_DIR picks the folder (default ~/Applications, or
+# USO_VERSION=1.4.0 picks a release. USO_INSTALL_DIR picks the folder (default ~/Applications, or
 # /Applications when Uso is already there).
 set -euo pipefail
 
