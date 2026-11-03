@@ -170,12 +170,15 @@ struct ClaudeSessionTests {
         }
     }
 
-    @Test func expiredSessionAsksToRunClaudeAndStaysVisible() async {
+    @Test func expiredSessionKeepsTheLastReadingWithoutAskingToSignIn() async {
         let client = ClaudeUsageClient(readCredentials: { _ in .expired }, sendUsage: { _ in nil })
         let snapshot = await client.load()
-        #expect(snapshot.tone == .missing)
-        #expect(snapshot.connection == .signInRequired)
+        #expect(snapshot.tone == .failed)
+        #expect(snapshot.connection == nil)
         #expect(snapshot.isDetected)
-        #expect(snapshot.note?.contains("expired") == true)
+        let previous = QuotaParsing.claude(["five_hour": ["utilization": 5]], plan: "Max")
+        let kept = snapshot.keepingLastReading(previous)
+        #expect(kept.tone == .ready)
+        #expect(kept.warning?.contains("Claude Code is idle") == true)
     }
 }

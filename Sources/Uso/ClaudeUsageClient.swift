@@ -140,9 +140,9 @@ actor ClaudeUsageClient {
                 return result
             }
             if case .expired = reading {
-                var result = problem(.missing, "Claude Code's session expired. Run claude once to renew it.")
-                result.connection = .signInRequired
-                return result
+                // Nothing to fix: Claude Code renews the session the next time it runs. A failed reading keeps
+                // the last numbers on the row.
+                return problem(.failed, "Claude Code is idle. Usage updates the next time you use it.")
             }
             if case .needsPermission = reading {
                 var result = problem(.missing, "Claude Code is signed in. Tap and choose Always Allow.")
