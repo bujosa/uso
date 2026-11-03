@@ -46,7 +46,7 @@ Download the zip for your Mac from the [releases page](https://github.com/bujosa
 
 ## Sign-in
 
-Sign in with the Claude Code CLI. Uso rereads that live session for each refresh and does not log in, refresh the token, write the keychain, or save a copy of the credentials. A failed refresh keeps the last percentages on the row, labeled with the last successful reading time. Those old readings leave the menu bar rotation until the next successful refresh. A rejected or missing session clears the old account's numbers.
+Sign in with the Claude Code CLI. Uso rereads that live session for each refresh and does not log in, refresh the token, write the keychain, or save a copy of the credentials. A failed refresh keeps the last percentages on the row, labeled with the last successful reading time. Those old readings leave the menu bar rotation until the next successful refresh. A rejected or missing session clears the old account's numbers. Claude Code renews its session only while it runs. After a few idle hours the row keeps the last reading, labeled Claude Code is idle, and updates on its own the next time you use Claude Code. Uso doesn't ask you to sign in or for keychain access then.
 
 Cursor 3.27 and later seal the desktop sign-in so only Cursor can open it. Uso does not try. Run `cursor-agent login` once with the [Cursor CLI](https://cursor.com/cli), and Uso reads the CLI's session instead, without a password prompt. Older Cursor versions keep working from the desktop session.
 
@@ -60,7 +60,7 @@ For Gemini, run `agy` and sign in with the Google account that has Google AI Pro
 ./scripts/install.sh
 ```
 
-That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.0-macOS-apple-silicon.zip` and `dist/Uso-1.4.0-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
+That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.1-macOS-apple-silicon.zip` and `dist/Uso-1.4.1-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
 
 Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, Cursor session, source detection, and preference persistence regression tests. Run `swift build -c release --arch arm64 --arch x86_64` to check the release build. CI runs both, plus `swift format lint --strict` and a script check, on every pull request.
 
