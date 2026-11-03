@@ -7,63 +7,96 @@ struct ClaudeCredentials: Sendable {
 
 enum ClaudeCredentialRead: Sendable {
     case available(ClaudeCredentials)
+    /// Claude Code is signed in, but its access token ran out. Only Claude Code renews it, the next time it runs.
+    case expired
     case needsPermission
     case missing
     case unavailable
 }
 
+/// Where Claude Code's session can be read. Tests swap these for fixtures.
+struct ClaudeCredentialSources: Sendable {
+    var viaSecurity: @Sendable () -> KeychainRead
+    var keychain: @Sendable (_ prompt: Bool) -> KeychainRead
+    var file: @Sendable () -> Data?
+
+    static let live = ClaudeCredentialSources(
+        viaSecurity: { Keychain.passwordViaSecurity(service: "Claude Code-credentials") },
+        keychain: { Keychain.password(service: "Claude Code-credentials", prompt: $0) },
+        file: {
+            let directory =
+                ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"].map { URL(fileURLWithPath: $0) }
+                ?? Paths.file(".claude")
+            return try? Data(contentsOf: directory.appendingPathComponent(".credentials.json"))
+        })
+}
+
 enum ClaudeSession {
     private static let backoffKey = "claudeKeychainBackoffUntil"
 
-    static func read(prompt: Bool) -> ClaudeCredentialRead {
+    private enum Parsed {
+        case valid(ClaudeCredentials)
+        case expired
+        case unreadable
+    }
+
+    static func read(prompt: Bool, from sources: ClaudeCredentialSources = .live) -> ClaudeCredentialRead {
         // macOS Claude Code's keychain is authoritative. Never read Uso's old copy.
-        if let credentials = credentials(from: Keychain.passwordViaSecurity(service: "Claude Code-credentials")) {
+        switch parse(sources.viaSecurity()) {
+        case .valid(let credentials):
             UserDefaults.standard.removeObject(forKey: backoffKey)
             return .available(credentials)
+        case .expired:
+            // Asking for keychain access can't help: Uso would read the same expired token, and Claude Code's
+            // next renewal rewrites the item and drops any Always Allow given to Uso.
+            return fileCredentials(sources).map(ClaudeCredentialRead.available) ?? .expired
+        case .unreadable:
+            break
         }
         if !prompt, Date().timeIntervalSince1970 < UserDefaults.standard.double(forKey: backoffKey) {
-            return fileCredentials().map(ClaudeCredentialRead.available) ?? .needsPermission
+            return fileCredentials(sources).map(ClaudeCredentialRead.available) ?? .needsPermission
         }
-        switch Keychain.password(service: "Claude Code-credentials", prompt: prompt) {
+        switch sources.keychain(prompt) {
         case .data(let data):
-            if let credentials = credentials(from: .data(data)) {
+            switch parse(.data(data)) {
+            case .valid(let credentials):
                 UserDefaults.standard.removeObject(forKey: backoffKey)
                 return .available(credentials)
+            case .expired:
+                return fileCredentials(sources).map(ClaudeCredentialRead.available) ?? .expired
+            case .unreadable:
+                return .missing
             }
-            return .missing
         case .needsPermission:
             if !prompt {
                 UserDefaults.standard.set(
                     Date().addingTimeInterval(6 * 60 * 60).timeIntervalSince1970, forKey: backoffKey)
             }
-            return fileCredentials().map(ClaudeCredentialRead.available) ?? .needsPermission
+            return fileCredentials(sources).map(ClaudeCredentialRead.available) ?? .needsPermission
         case .missing:
-            return fileCredentials().map(ClaudeCredentialRead.available) ?? .missing
+            return fileCredentials(sources).map(ClaudeCredentialRead.available) ?? .missing
         case .unavailable:
-            return fileCredentials().map(ClaudeCredentialRead.available) ?? .unavailable
+            return fileCredentials(sources).map(ClaudeCredentialRead.available) ?? .unavailable
         }
     }
 
-    private static func credentials(from read: KeychainRead) -> ClaudeCredentials? {
+    private static func parse(_ read: KeychainRead) -> Parsed {
         guard case .data(let data) = read, let root = JSON.object(from: data),
             let oauth = JSON.dictionary(root["claudeAiOauth"]),
-            let token = JSON.string(oauth["accessToken"]), !token.isEmpty,
-            let expires = Clock.date(from: oauth["expiresAt"]), expires > Date()
-        else { return nil }
+            let token = JSON.string(oauth["accessToken"]), !token.isEmpty
+        else { return .unreadable }
+        guard let expires = Clock.date(from: oauth["expiresAt"]) else { return .unreadable }
+        guard expires > Date() else { return .expired }
         let subscription = JSON.string(oauth["subscriptionType"]) ?? ""
-        return ClaudeCredentials(
-            accessToken: token,
-            plan: Format.claudePlan(subscription: subscription, tier: JSON.string(oauth["rateLimitTier"])))
+        return .valid(
+            ClaudeCredentials(
+                accessToken: token,
+                plan: Format.claudePlan(subscription: subscription, tier: JSON.string(oauth["rateLimitTier"]))))
     }
 
-    private static func fileCredentials() -> ClaudeCredentials? {
-        let directory =
-            ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"].map { URL(fileURLWithPath: $0) }
-            ?? Paths.file(".claude")
-        guard let data = try? Data(contentsOf: directory.appendingPathComponent(".credentials.json")) else {
-            return nil
-        }
-        return credentials(from: .data(data))
+    private static func fileCredentials(_ sources: ClaudeCredentialSources) -> ClaudeCredentials? {
+        guard let data = sources.file(), case .valid(let credentials) = parse(.data(data)) else { return nil }
+        return credentials
     }
 }
 
@@ -104,6 +137,11 @@ actor ClaudeUsageClient {
                 var result = problem(
                     .failed, "The Claude Code session could not be read in time. Try checking again later.")
                 result.connection = .unverified
+                return result
+            }
+            if case .expired = reading {
+                var result = problem(.missing, "Claude Code's session expired. Run claude once to renew it.")
+                result.connection = .signInRequired
                 return result
             }
             if case .needsPermission = reading {

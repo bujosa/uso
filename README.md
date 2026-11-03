@@ -46,7 +46,7 @@ Download the zip for your Mac from the [releases page](https://github.com/bujosa
 
 ## Sign-in
 
-Sign in with the Claude Code CLI. Uso rereads that live session for each refresh and does not log in, refresh the token, write the keychain, or save a copy of the credentials. A failed refresh keeps the last percentages on the row, labeled with the last successful reading time. Those old readings leave the menu bar rotation until the next successful refresh. A rejected or missing session clears the old account's numbers.
+Sign in with the Claude Code CLI. Uso rereads that live session for each refresh and does not log in, refresh the token, write the keychain, or save a copy of the credentials. A failed refresh keeps the last percentages on the row, labeled with the last successful reading time. Those old readings leave the menu bar rotation until the next successful refresh. A rejected or missing session clears the old account's numbers. Claude Code renews its session only while it runs, so after a few idle hours the row shows Sign in needed until you run `claude` once. Uso doesn't ask for keychain access then, because access can't renew an expired session.
 
 Cursor 3.27 and later seal the desktop sign-in so only Cursor can open it. Uso does not try. Run `cursor-agent login` once with the [Cursor CLI](https://cursor.com/cli), and Uso reads the CLI's session instead, without a password prompt. Older Cursor versions keep working from the desktop session.
 

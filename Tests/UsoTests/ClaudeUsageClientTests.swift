@@ -105,3 +105,77 @@ struct ClaudeUsageClientTests {
         #expect(await client.load().tone == .failed)
     }
 }
+
+private final class KeychainCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var prompts: [Bool] = []
+    func record(_ prompt: Bool) { lock.withLock { prompts.append(prompt) } }
+    var recorded: [Bool] { lock.withLock { prompts } }
+}
+
+struct ClaudeSessionTests {
+    private func session(expiresIn seconds: Double) -> KeychainRead {
+        let expires = Int((Date().timeIntervalSince1970 + seconds) * 1000)
+        return .data(
+            Data(
+                "{\"claudeAiOauth\":{\"accessToken\":\"fixture-session\",\"expiresAt\":\(expires),\"subscriptionType\":\"max\"}}"
+                    .utf8))
+    }
+
+    @Test func expiredSessionDoesNotAskForKeychainAccess() {
+        let calls = KeychainCalls()
+        let stale = session(expiresIn: -60)
+        let sources = ClaudeCredentialSources(
+            viaSecurity: { stale },
+            keychain: {
+                calls.record($0)
+                return .needsPermission
+            }, file: { nil })
+        guard case .expired = ClaudeSession.read(prompt: false, from: sources) else {
+            Issue.record("An expired session must not be reported as a keychain permission problem.")
+            return
+        }
+        guard case .expired = ClaudeSession.read(prompt: true, from: sources) else {
+            Issue.record("Allowing access cannot renew an expired session.")
+            return
+        }
+        #expect(calls.recorded.isEmpty)
+    }
+
+    @Test func currentSessionIsUsedWithoutTheKeychainPrompt() {
+        let calls = KeychainCalls()
+        let current = session(expiresIn: 3600)
+        let sources = ClaudeCredentialSources(
+            viaSecurity: { current },
+            keychain: {
+                calls.record($0)
+                return .needsPermission
+            }, file: { nil })
+        guard case .available(let credentials) = ClaudeSession.read(prompt: false, from: sources) else {
+            Issue.record("A current session should be available.")
+            return
+        }
+        #expect(credentials.accessToken == "fixture-session")
+        #expect(calls.recorded.isEmpty)
+    }
+
+    @Test func expiredKeychainSessionFallsBackToACurrentCredentialsFile() {
+        let stale = session(expiresIn: -60)
+        guard case .data(let current) = session(expiresIn: 3600) else { return }
+        let sources = ClaudeCredentialSources(
+            viaSecurity: { stale }, keychain: { _ in .needsPermission }, file: { current })
+        guard case .available = ClaudeSession.read(prompt: false, from: sources) else {
+            Issue.record("A current credentials file should be used.")
+            return
+        }
+    }
+
+    @Test func expiredSessionAsksToRunClaudeAndStaysVisible() async {
+        let client = ClaudeUsageClient(readCredentials: { _ in .expired }, sendUsage: { _ in nil })
+        let snapshot = await client.load()
+        #expect(snapshot.tone == .missing)
+        #expect(snapshot.connection == .signInRequired)
+        #expect(snapshot.isDetected)
+        #expect(snapshot.note?.contains("expired") == true)
+    }
+}
