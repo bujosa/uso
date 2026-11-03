@@ -60,7 +60,7 @@ For Gemini, run `agy` and sign in with the Google account that has Google AI Pro
 ./scripts/install.sh
 ```
 
-That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.0-macOS-apple-silicon.zip` and `dist/Uso-1.4.0-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
+That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.1-macOS-apple-silicon.zip` and `dist/Uso-1.4.1-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
 
 Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, Cursor session, source detection, and preference persistence regression tests. Run `swift build -c release --arch arm64 --arch x86_64` to check the release build. CI runs both, plus `swift format lint --strict` and a script check, on every pull request.
 
