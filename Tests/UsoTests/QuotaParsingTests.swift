@@ -326,7 +326,7 @@ struct QuotaParsingTests {
         #expect(snapshot.tone == .ready)
         #expect(snapshot.plan == "Google AI Pro")
         #expect(snapshot.bars.map(\.id) == ["session", "week", "claude:session", "claude:week"])
-        #expect(snapshot.bars.first?.label == "Session")
+        #expect(snapshot.bars.map(\.label) == ["Session", "Week", "Claude & GPT 5h", "Claude & GPT week"])
         #expect(snapshot.bars.first?.usedPercent == 10)
         #expect(snapshot.headline == "90% left")
         #expect(MenuTicker.lines(from: [snapshot]) == ["Gemini 5h 90%", "Gemini wk 20%"])
@@ -343,8 +343,11 @@ struct QuotaParsingTests {
                 """), plan: "Free")
         #expect(snapshot.bars.map(\.id) == ["session", "week"])
         #expect(snapshot.bars.map(\.usedPercent) == [0, 0])
+        #expect(snapshot.bars.map(\.label) == ["Claude & GPT 5h", "Claude & GPT week"])
         #expect(snapshot.headline == "100% left")
         #expect(snapshot.plan == "Free")
+        #expect(snapshot.note?.contains("no limit for Gemini models") == true)
+        #expect(MenuTicker.lines(from: [snapshot]) == ["AG Claude 5h 100%", "AG Claude wk 100%"])
     }
 
     @Test(arguments: ["{}", "{\"groups\":[]}", "{\"groups\":[{\"buckets\":[{\"window\":\"5h\"}]}]}"])
@@ -396,6 +399,20 @@ struct QuotaParsingTests {
         #expect(credentials?.expiry != nil)
         #expect(GeminiSession.credentials(from: Data(json.utf8))?.accessToken == "ya29.example")
         #expect(GeminiSession.credentials(from: Data("{}".utf8)) == nil)
+    }
+
+    @Test func geminiSessionReadsAntigravityACPToken() {
+        let json = """
+            {"client_id":"client.apps.googleusercontent.com","client_secret":"shh","refresh_token":"1//acp",
+             "token_uri":"https://oauth2.googleapis.com/token","scopes":["openid"],"project_id":"p"}
+            """
+        let credentials = GeminiSession.credentials(from: Data(json.utf8))
+        #expect(credentials?.accessToken == "")
+        #expect(credentials?.refreshToken == "1//acp")
+        #expect(credentials?.clientID == "client.apps.googleusercontent.com")
+        #expect(credentials?.clientSecret == "shh")
+        #expect(credentials.map(GeminiSession.needsRefresh) == true)
+        #expect(GeminiSession.credentials(from: Data(#"{"refresh_token":""}"#.utf8)) == nil)
     }
 
     @Test func networkCacheIsDisabledForUsageReads() {

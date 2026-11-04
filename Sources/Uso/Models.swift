@@ -285,7 +285,9 @@ enum MenuTicker {
             return ["session", "week"].compactMap { id in
                 guard let bar = provider.bars.first(where: { $0.id == id }) else { return nil }
                 let tag = id == "session" ? "5h" : "wk"
-                return "Gemini \(tag) \(remaining(bar))"
+                // Named bars are Antigravity's Claude and GPT pool, promoted when Google sends no Gemini group.
+                let name = bar.label == "Session" || bar.label == "Week" ? "Gemini" : "AG Claude"
+                return "\(name) \(tag) \(remaining(bar))"
             }
         case "opencode":
             guard let week = provider.chips.first(where: { $0.id == "week" }) else { return [] }

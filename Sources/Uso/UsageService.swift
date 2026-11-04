@@ -389,10 +389,15 @@ struct UsageService: Sendable {
         guard var session = GeminiSession.read() else {
             return .problem(
                 id: "gemini", name: "Gemini", tone: .missing,
-                note: "No session. Run agy and sign in with Google.")
+                note: "No session. Sign in to Antigravity (agy) with Google.")
         }
-        if GeminiSession.needsRefresh(session), let refreshed = await refreshGemini(session) {
-            session.accessToken = refreshed
+        if GeminiSession.needsRefresh(session) {
+            if let refreshed = await refreshGemini(session) {
+                session.accessToken = refreshed
+            } else if session.accessToken.isEmpty {
+                return .signInRequired(
+                    id: "gemini", name: "Gemini", note: "Antigravity session expired. Sign in to Antigravity again.")
+            }
         }
         let quotaURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
         let planURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
@@ -451,8 +456,8 @@ struct UsageService: Sendable {
         let body = formEncode([
             "grant_type": "refresh_token",
             "refresh_token": refresh,
-            "client_id": GeminiSession.oauthClientID,
-            "client_secret": GeminiSession.oauthClientSecret,
+            "client_id": session.clientID ?? GeminiSession.oauthClientID,
+            "client_secret": session.clientSecret ?? GeminiSession.oauthClientSecret,
         ])
         guard
             let (status, data) = await HTTP.send(
