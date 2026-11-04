@@ -1,11 +1,16 @@
 import Foundation
 
-/// Antigravity CLI (`agy`) session on this Mac. Google stores it in the login keychain as
-/// service `gemini` / account `antigravity`. Uso reads that copy and does not write it back.
+/// Antigravity session on this Mac. The CLI (`agy`) stores it in the login keychain as service
+/// `gemini` / account `antigravity`. Antigravity's ACP server, which T3 Code runs, keeps a
+/// refresh-only `acp_token.json` instead. Uso reads those copies and does not write them back.
 struct GeminiCredentials: Sendable, Equatable {
+    /// Empty when the session saved only a refresh token.
     var accessToken: String
     var refreshToken: String?
     var expiry: Date?
+    /// OAuth client the refresh token belongs to, when the session names one.
+    var clientID: String?
+    var clientSecret: String?
 }
 
 enum GeminiSession {
@@ -26,22 +31,53 @@ enum GeminiSession {
             if let credentials = credentials(from: data) { return credentials }
         }
         let file = Paths.file(".gemini", "antigravity-cli", "antigravity-oauth-token")
-        guard let data = try? Data(contentsOf: file) else { return nil }
-        return credentials(from: data)
+        if let data = try? Data(contentsOf: file), let credentials = credentials(from: data) {
+            return credentials
+        }
+        for file in acpTokenFiles() {
+            if let data = try? Data(contentsOf: file), let credentials = credentials(from: data) {
+                return credentials
+            }
+        }
+        return nil
+    }
+
+    /// ACP sessions, newest first: `~/.gemini/antigravity-acp` and each Antigravity home T3 Code keeps.
+    static func acpTokenFiles(fileManager: FileManager = .default) -> [URL] {
+        var files = [Paths.file(".gemini", "antigravity-acp", "acp_token.json")]
+        let homes = Paths.file(".t3", "userdata", "providers", "antigravity")
+        for home in (try? fileManager.contentsOfDirectory(at: homes, includingPropertiesForKeys: nil)) ?? [] {
+            files.append(home.appendingPathComponent("antigravity-acp").appendingPathComponent("acp_token.json"))
+        }
+        func modified(_ url: URL) -> Date? {
+            (try? fileManager.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        }
+        return files.compactMap { url in modified(url).map { (url, $0) } }
+            .sorted { $0.1 > $1.1 }
+            .map(\.0)
     }
 
     static func credentials(from data: Data) -> GeminiCredentials? {
-        guard let root = object(from: data),
-            let token = JSON.dictionary(root["token"]) ?? JSON.dictionary(root["Token"]),
+        guard let root = object(from: data) else { return nil }
+        if let token = JSON.dictionary(root["token"]) ?? JSON.dictionary(root["Token"]),
             let access = JSON.string(token["access_token"]) ?? JSON.string(token["accessToken"]),
             !access.isEmpty
-        else { return nil }
-        let refresh = JSON.string(token["refresh_token"]) ?? JSON.string(token["refreshToken"])
-        let expiry = Clock.date(from: token["expiry"]) ?? Clock.date(from: token["expires_at"])
-        return GeminiCredentials(accessToken: access, refreshToken: refresh, expiry: expiry)
+        {
+            let refresh = JSON.string(token["refresh_token"]) ?? JSON.string(token["refreshToken"])
+            let expiry = Clock.date(from: token["expiry"]) ?? Clock.date(from: token["expires_at"])
+            return GeminiCredentials(accessToken: access, refreshToken: refresh, expiry: expiry)
+        }
+        // ACP `acp_token.json`: an authorized-user file with a refresh token and its OAuth client.
+        guard let refresh = JSON.string(root["refresh_token"]), !refresh.isEmpty else { return nil }
+        let clientID = JSON.string(root["client_id"]).flatMap { $0.isEmpty ? nil : $0 }
+        let clientSecret = JSON.string(root["client_secret"]).flatMap { $0.isEmpty ? nil : $0 }
+        return GeminiCredentials(
+            accessToken: JSON.string(root["access_token"]) ?? "", refreshToken: refresh, expiry: nil,
+            clientID: clientID, clientSecret: clientID == nil ? nil : clientSecret)
     }
 
     static func needsRefresh(_ credentials: GeminiCredentials) -> Bool {
+        if credentials.accessToken.isEmpty { return true }
         guard let expiry = credentials.expiry else { return false }
         return expiry.timeIntervalSinceNow < 120
     }

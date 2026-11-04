@@ -338,18 +338,21 @@ enum QuotaParsing {
             return .problem(
                 id: "gemini", name: "Gemini", tone: .failed, note: "Gemini didn't return any usage windows.")
         }
-        let primaryIndex = groups.firstIndex { $0.name.lowercased().contains("gemini") } ?? 0
+        let geminiIndex = groups.firstIndex { $0.name.lowercased().contains("gemini") }
+        let primaryIndex = geminiIndex ?? 0
         var bars: [MeterBar] = []
         func append(group: Group, primary: Bool) {
             let tag = groupLabel(group.name)
+            // Without a Gemini group, the promoted bars still belong to another group, so keep its name on them.
+            let named = !primary || geminiIndex == nil
             if var bar = group.session {
-                bar.id = primary ? "session" : "\(tag.lowercased()):session"
-                bar.label = primary ? "Session" : "\(tag) 5h"
+                bar.id = primary ? "session" : "\(tag.id):session"
+                bar.label = named ? "\(tag.label) 5h" : "Session"
                 bars.append(bar)
             }
             if var bar = group.week {
-                bar.id = primary ? "week" : "\(tag.lowercased()):week"
-                bar.label = primary ? "Week" : "\(tag) week"
+                bar.id = primary ? "week" : "\(tag.id):week"
+                bar.label = named ? "\(tag.label) week" : "Week"
                 bars.append(bar)
             }
         }
@@ -365,7 +368,9 @@ enum QuotaParsing {
             id: "gemini", name: "Gemini", plan: plan.isEmpty ? "Gemini" : plan,
             headline: "\(Format.percent(max(0, 100 - first.usedPercent))) left",
             bars: bars, chips: [], lines: [],
-            note: "Quota for the Google account signed in to Antigravity (agy) on this Mac.",
+            note: geminiIndex == nil
+                ? "Google reports no limit for Gemini models in Antigravity. The bars are its Claude and GPT models."
+                : "Quota for the Google account signed in to Antigravity on this Mac.",
             warning: nil, tone: .ready)
     }
 
@@ -387,11 +392,11 @@ enum QuotaParsing {
         return nil
     }
 
-    private static func groupLabel(_ name: String) -> String {
+    private static func groupLabel(_ name: String) -> (id: String, label: String) {
         let lower = name.lowercased()
-        if lower.contains("claude") || lower.contains("gpt") { return "Claude" }
-        if lower.contains("gemini") { return "Gemini" }
+        if lower.contains("claude") || lower.contains("gpt") { return ("claude", "Claude & GPT") }
+        if lower.contains("gemini") { return ("gemini", "Gemini") }
         let first = name.split(whereSeparator: { $0 == " " || $0 == "·" }).first.map(String.init) ?? name
-        return first.isEmpty ? "Other" : first
+        return first.isEmpty ? ("other", "Other") : (first.lowercased(), first)
     }
 }
