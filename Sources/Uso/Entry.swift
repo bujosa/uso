@@ -58,6 +58,15 @@ final class UsagePanelWindow: NSWindow {
     }
 
     override func cancelOperation(_ sender: Any?) { onEscape?() }
+
+    /// With no focused control, Escape reaches the window itself rather than the responder chain.
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            onEscape?()
+            return
+        }
+        super.keyDown(with: event)
+    }
 }
 
 @MainActor
@@ -67,6 +76,8 @@ final class UsoDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var titleWatcher: AnyCancellable?
     private var suppressToggle = false
+    private var outsideClickMonitor: Any?
+    private var appActivationObserver: NSObjectProtocol?
     private let presentation = PanelPresentation()
     private var presentationGeneration = 0
     private let centered = CommandLine.arguments.contains("--panel")
@@ -205,6 +216,9 @@ final class UsoDelegate: NSObject, NSApplicationDelegate {
         window.alphaValue = reduceMotion ? 1 : 0
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // With keyboard navigation on, AppKit focuses the first row and draws its ring. Tab still moves in.
+        window.makeFirstResponder(nil)
+        watchForOutsideClicks()
         window.contentView?.layoutSubtreeIfNeeded()
         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 0.025)) { [weak self, weak window] in
             guard let self, let window, window.isVisible, self.presentationGeneration == generation else { return }
@@ -229,7 +243,43 @@ final class UsoDelegate: NSObject, NSApplicationDelegate {
 
     private func hidePanel() {
         presentationGeneration += 1
+        stopWatchingForOutsideClicks()
         panel?.orderOut(nil)
+    }
+
+    /// Resigning key isn't enough: macOS may not activate Uso, and another app's menu bar item opens without
+    /// taking key. A click anywhere outside Uso, or another app coming forward, closes the panel.
+    private func watchForOutsideClicks() {
+        guard !centered, outsideClickMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                // Control Center can host the status item, so clicks on it arrive here too. The button's own
+                // action opens and closes the panel; closing here as well would reopen it on the same click.
+                guard let self, !self.isOverStatusItem(NSEvent.mouseLocation) else { return }
+                self.hidePanel()
+            }
+        }
+        appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            guard app?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+            MainActor.assumeIsolated { self?.hidePanel() }
+        }
+    }
+
+    private func isOverStatusItem(_ point: NSPoint) -> Bool {
+        guard let frame = statusItem?.button?.window?.frame else { return false }
+        return frame.insetBy(dx: -2, dy: -2).contains(point)
+    }
+
+    private func stopWatchingForOutsideClicks() {
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        outsideClickMonitor = nil
+        if let appActivationObserver { NSWorkspace.shared.notificationCenter.removeObserver(appActivationObserver) }
+        appActivationObserver = nil
     }
 
     private func resizePanel(animated: Bool) {
