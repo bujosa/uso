@@ -5,8 +5,11 @@ import SwiftUI
 final class PanelPresentation: ObservableObject {
     @Published private(set) var isPresented = false
     @Published private(set) var escapeRequest = 0
+    /// Bumps on every open, so rows drop a hover the closed panel never saw end.
+    @Published private(set) var opening = 0
 
     func prepare(reduceMotion: Bool) {
+        opening += 1
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { isPresented = reduceMotion }
@@ -136,6 +139,7 @@ struct PanelView: View {
                     ProviderRow(provider: provider)
                 }
                 .buttonStyle(RowButtonStyle())
+                .focusEffectDisabled()
                 .opacity(reduceMotion || presentation.isPresented ? 1 : 0)
                 .offset(y: reduceMotion || presentation.isPresented ? 0 : 12)
                 .animation(
@@ -566,17 +570,29 @@ private struct Meter: View {
 }
 
 private struct RowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        RowButtonBody(configuration: configuration)
+    }
+}
+
+/// Hover and keyboard focus share one soft fill instead of the system focus ring, which the panel clips to
+/// two lines across the row.
+private struct RowButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    @EnvironmentObject private var presentation: PanelPresentation
+    @Environment(\.isFocused) private var focused
     @State private var hovered = false
 
-    func makeBody(configuration: Configuration) -> some View {
+    var body: some View {
         configuration.label
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.primary.opacity(configuration.isPressed ? 0.08 : hovered ? 0.05 : 0))
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.08 : hovered || focused ? 0.05 : 0))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
             )
             .onHover { hovered = $0 }
+            .onChange(of: presentation.opening) { _, _ in hovered = false }
     }
 }
 

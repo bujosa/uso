@@ -6,7 +6,7 @@
 
 Menu bar app for macOS. It shows what is left on Grok, Grok Bot, Cursor, Codex, Claude, Gemini, and OpenCode. Only the services you use on this Mac appear.
 
-The menu bar cycles through the accounts, about 3 seconds each. Claude shows the week, the 5-hour window only while that limit is active, and included API credits when the plan has them. On The X Subscription the week is one shared pool; on a legacy Cursor plan, Auto then included dollars. Click the item to open the panel. Click anywhere else, or press Escape, to hide it. Open a row for the full breakdown.
+The menu bar cycles through the accounts, about 3 seconds each. Claude shows the week, the 5-hour window only while that limit is active, and included API credits when the plan has them. On The X Subscription the week is one shared pool; on a legacy Cursor plan, Auto then included dollars. Click the item to open the panel. Click anywhere else, including another menu bar item or app, or press Escape, to hide it. Open a row for the full breakdown.
 
 The panel opens with a short spring animation, staggered rows, a moving edge highlight, and animated meters. macOS Reduce Motion disables these effects. Escape returns from a detail to the list, then closes the panel; Command-R refreshes the usage.
 
@@ -60,7 +60,7 @@ For Gemini, sign in to Antigravity with the Google account that has Google AI Pr
 ./scripts/install.sh
 ```
 
-That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.2-macOS-apple-silicon.zip` and `dist/Uso-1.4.2-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
+That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.3-macOS-apple-silicon.zip` and `dist/Uso-1.4.3-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
 
 Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, Cursor session, source detection, and preference persistence regression tests. Run `swift build -c release --arch arm64 --arch x86_64` to check the release build. CI runs both, plus `swift format lint --strict` and a script check, on every pull request.
 
