@@ -356,7 +356,7 @@ private struct ProviderRow: View {
                 .filter { order.contains($0.id) }
                 .sorted { (order.firstIndex(of: $0.id) ?? 9) < (order.firstIndex(of: $1.id) ?? 9) }
         case "gemini":
-            let order = ["session", "week"]
+            let order = ["session", "day", "week"]
             return order.compactMap { id in provider.bars.first { $0.id == id } }
         case "openai":
             return provider.bars.sorted { lhs, rhs in

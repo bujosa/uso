@@ -22,7 +22,61 @@ enum GeminiSession {
         String(1_071_006_060_591) + "-" + "tmhssin2h21lcre235vtolojh4g403ep" + ".apps.googleusercontent.com"
     }
     static var oauthClientSecret: String { "GOC" + "SPX-" + "K58FWR486LdLJ1mLB8sXC4z6qDAf" }
+    /// Minimum Antigravity client version that receives the Gemini Models group from
+    /// `retrieveUserQuotaSummary` (older/CLI user agents only receive Claude & GPT models).
+    static let minimumClientVersion = "2.28.0"
     private static let keyringPrefix = "go-keyring-base64:"
+
+    static var userAgent: String {
+        userAgent(installedVersion: installedAntigravityVersion())
+    }
+
+    static func userAgent(installedVersion: String?) -> String {
+        let floor = minimumClientVersion
+        guard let installedVersion,
+            let candidate = normalizedSemver(installedVersion),
+            let baseline = normalizedSemver(floor),
+            isNewer(candidate, than: baseline)
+        else {
+            return "antigravity/\(floor)"
+        }
+        return "antigravity/\(candidate.map(String.init).joined(separator: "."))"
+    }
+
+    private static func installedAntigravityVersion() -> String? {
+        let plists = [
+            URL(fileURLWithPath: "/Applications/Antigravity.app/Contents/Info.plist"),
+            Paths.file("Applications", "Antigravity.app", "Contents", "Info.plist"),
+        ]
+        var best: [Int]?
+        for url in plists {
+            guard let data = try? Data(contentsOf: url),
+                let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                let version = plist["CFBundleShortVersionString"] as? String,
+                let parts = normalizedSemver(version)
+            else { continue }
+            if let current = best {
+                if isNewer(parts, than: current) { best = parts }
+            } else {
+                best = parts
+            }
+        }
+        return best?.map(String.init).joined(separator: ".")
+    }
+
+    private static func normalizedSemver(_ raw: String) -> [Int]? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let components = trimmed.split(separator: ".")
+        guard components.count == 3 else { return nil }
+        let numbers = components.compactMap { Int($0) }
+        guard numbers.count == 3, numbers.allSatisfy({ $0 >= 0 }) else { return nil }
+        return numbers
+    }
+
+    private static func isNewer(_ lhs: [Int], than rhs: [Int]) -> Bool {
+        for (a, b) in zip(lhs, rhs) where a != b { return a > b }
+        return false
+    }
 
     static func read() -> GeminiCredentials? {
         if case .data(let data) = Keychain.passwordViaSecurity(
@@ -30,9 +84,14 @@ enum GeminiSession {
         {
             if let credentials = credentials(from: data) { return credentials }
         }
-        let file = Paths.file(".gemini", "antigravity-cli", "antigravity-oauth-token")
-        if let data = try? Data(contentsOf: file), let credentials = credentials(from: data) {
-            return credentials
+        let files = [
+            Paths.file(".gemini", "antigravity-cli", "antigravity-oauth-token"),
+            Paths.file(".gemini", "jetski-standalone-oauth-token"),
+        ]
+        for file in files {
+            if let data = try? Data(contentsOf: file), let credentials = credentials(from: data) {
+                return credentials
+            }
         }
         for file in acpTokenFiles() {
             if let data = try? Data(contentsOf: file), let credentials = credentials(from: data) {

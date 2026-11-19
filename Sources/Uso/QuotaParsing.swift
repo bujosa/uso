@@ -303,6 +303,7 @@ enum QuotaParsing {
         struct Group {
             var name: String
             var session: MeterBar?
+            var day: MeterBar?
             var week: MeterBar?
         }
         var groups: [Group] = []
@@ -310,6 +311,7 @@ enum QuotaParsing {
             guard let row = JSON.dictionary(item) else { continue }
             let name = JSON.string(row["displayName"]) ?? JSON.string(row["name"]) ?? ""
             var session: MeterBar?
+            var day: MeterBar?
             var week: MeterBar?
             for bucket in JSON.array(row["buckets"]) {
                 guard let info = JSON.dictionary(bucket), JSON.bool(info["disabled"]) != true,
@@ -323,6 +325,10 @@ enum QuotaParsing {
                         session = MeterBar(
                             id: "session", label: "Session", usedPercent: used, detail: Format.reset(reset))
                     }
+                case "day":
+                    if day == nil {
+                        day = MeterBar(id: "day", label: "Day", usedPercent: used, detail: Format.reset(reset))
+                    }
                 case "week":
                     if week == nil {
                         week = MeterBar(id: "week", label: "Week", usedPercent: used, detail: Format.reset(reset))
@@ -330,8 +336,8 @@ enum QuotaParsing {
                 default: continue
                 }
             }
-            if session != nil || week != nil {
-                groups.append(Group(name: name, session: session, week: week))
+            if session != nil || day != nil || week != nil {
+                groups.append(Group(name: name, session: session, day: day, week: week))
             }
         }
         guard !groups.isEmpty else {
@@ -348,6 +354,11 @@ enum QuotaParsing {
             if var bar = group.session {
                 bar.id = primary ? "session" : "\(tag.id):session"
                 bar.label = named ? "\(tag.label) 5h" : "Session"
+                bars.append(bar)
+            }
+            if var bar = group.day {
+                bar.id = primary ? "day" : "\(tag.id):day"
+                bar.label = named ? "\(tag.label) day" : "Day"
                 bars.append(bar)
             }
             if var bar = group.week {
@@ -386,6 +397,7 @@ enum QuotaParsing {
             JSON.string(bucket["name"]), JSON.string(bucket["id"]),
         ].compactMap { $0 }.joined(separator: " ").lowercased()
         if label.contains("week") || label.contains("7d") || label.contains("seven") { return "week" }
+        if label.contains("daily") || label.contains("24h") || label.contains("day") { return "day" }
         if label.contains("5h") || label.contains("5 h") || label.contains("hour") || label.contains("session") {
             return "session"
         }
