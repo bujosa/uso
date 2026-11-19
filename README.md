@@ -60,7 +60,7 @@ For Gemini, sign in to Antigravity with the Google account that has Google AI Pr
 ./scripts/install.sh
 ```
 
-That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.3-macOS-apple-silicon.zip` and `dist/Uso-1.4.3-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
+That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.4-macOS-apple-silicon.zip` and `dist/Uso-1.4.4-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
 
 Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, Cursor session, source detection, and preference persistence regression tests. Run `swift build -c release --arch arm64 --arch x86_64` to check the release build. CI runs both, plus `swift format lint --strict` and a script check, on every pull request.
 
@@ -69,7 +69,7 @@ Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit
 - **X Subscription.** When Grok, Cursor, and Grok Bot report The X Subscription, the panel shows one week (the Cursor reading), plus Grok's mix and prepaid on that same row. Grok and Grok Bot stay in Settings; turn either on if you want the separate row. Legacy Cursor plans still show Grok, Grok Bot, and Cursor as their own quotas: Grok weekly credits plus product meters, Grok Bot's week or trial, Cursor Auto then included dollars.
 - **Codex.** The weekly window is on the row. A shorter window, when the account has one, sits above it.
 - **Claude.** The week is on the row. The 5-hour session appears only while Anthropic marks it active (Pro, Max, and unverified Ultra). Verified Ultra drops that bar. Included monthly API credits, extra usage, and a banked limit reset show when the account returns them. A model week such as Fable, and the mix across Claude Code and the rest, are inside the row.
-- **Gemini.** Session and week for the Google account signed in to Antigravity. Extra model groups, when the account returns them, are inside the row. Google reports no limit for some Gemini models in Antigravity. Then the row shows Antigravity's Claude and GPT pool, labeled Claude & GPT (AG Claude in the menu bar), so it isn't mistaken for Gemini usage.
+- **Gemini.** Session and week for the Google account signed in to Antigravity (plus Day if Google reports one). Extra model groups such as Claude & GPT stay inside the row and do not enter the menu bar rotation. When Google reports no Gemini group, the panel row labels those bars Claude & GPT and leaves them out of the menu bar.
 - **OpenCode.** Local tokens for today, the last 7 days, and all time. This is sessions on this Mac, not a plan quota. An OpenCode Go key adds the official quota.
 
 Bars fill as usage goes up. Red means 90% or more used. Orange means 75% or more. The number on the row is what is left.
@@ -80,7 +80,7 @@ The panel refreshes when you open it, and again every 3 minutes. The refresh but
 
 Click the gear in the panel, or press Command-comma, to open Settings. Accounts & plans lists every supported source, its detected plan, and its connection state. Free plans and local OpenCode activity are labeled separately. Claude shows Max or Ultra from the session (old Max 20× logins map to Ultra); Grok Bot also shows the Cursor tier returned by its account. Gemini shows Google AI Pro or Ultra from the Google One paid tier when Antigravity reports it, otherwise Free.
 
-A source appears once Uso finds a session for it on this Mac. One that needs attention, such as an expired session, stays visible with what to do. Sources you don't use stay out of the panel and menu bar, so there is nothing to set up. Grok Bot needs the Grok Bot app on this Mac. Gemini needs an Antigravity sign-in, from `agy` or an app such as T3 Code. OpenCode without a Go key needs local activity in the last 30 days.
+A source appears once Uso finds a session for it on this Mac. One that needs attention, such as an expired session, stays visible with what to do. Sources you don't use stay out of the panel and menu bar, so there is nothing to set up. Grok Bot needs the Grok Bot app on this Mac. Gemini needs an Antigravity sign-in, from `agy`, `Antigravity.app`, or an app such as T3 Code. OpenCode without a Go key needs local activity in the last 30 days.
 
 Each source has independent Panel and Menu bar switches. A switch you change overrides detection and is saved on this Mac. Every source still appears in Settings, so you can show it again. Show detected only clears your overrides; Check now reruns detection. Manage account opens the provider's account website.
 
@@ -97,7 +97,7 @@ Uso reads the session each tool already saved on this Mac. It does not ask you t
 | Cursor | Cursor's local database, or keychain item `cursor-access-token` from the Cursor CLI | Cursor dashboard |
 | Codex | `~/.codex/auth.json` | Codex usage |
 | Claude | Login keychain item `Claude Code-credentials` | Claude OAuth usage |
-| Gemini | Keychain item `gemini` / `antigravity` from `agy`, else Antigravity's `acp_token.json` (`~/.gemini/antigravity-acp` or T3 Code's Antigravity home) | Antigravity quota summary |
+| Gemini | Keychain item `gemini` / `antigravity` from `agy`, else Antigravity's `jetski-standalone-oauth-token` or `acp_token.json` (`~/.gemini/antigravity-acp` or T3 Code's Antigravity home) | Antigravity quota summary |
 | OpenCode | `opencode.db` on this Mac | OpenCode Go, only if that key is present |
 
 Tokens stay in memory for the request. Uso does not write them to a log or to its own database.

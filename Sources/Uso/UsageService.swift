@@ -417,7 +417,7 @@ struct UsageService: Sendable {
                 "Accept": "application/json",
                 "Authorization": "Bearer \(token)",
                 "Content-Type": "application/json",
-                "User-Agent": "antigravity-cli",
+                "User-Agent": GeminiSession.userAgent,
             ]
             async let quotaCall = HTTP.send(quotaURL, method: "POST", headers: headers, body: empty)
             async let planCall = HTTP.send(planURL, method: "POST", headers: headers, body: planRequest)

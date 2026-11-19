@@ -347,7 +347,33 @@ struct QuotaParsingTests {
         #expect(snapshot.headline == "100% left")
         #expect(snapshot.plan == "Free")
         #expect(snapshot.note?.contains("no limit for Gemini models") == true)
-        #expect(MenuTicker.lines(from: [snapshot]) == ["AG Claude 5h 100%", "AG Claude wk 100%"])
+        #expect(MenuTicker.lines(from: [snapshot]).isEmpty)
+    }
+
+    @Test func geminiSupportsDailyBucketAlongsideSessionAndWeek() {
+        let snapshot = QuotaParsing.gemini(
+            parse(
+                """
+                {"groups":[{"displayName":"Gemini Models","buckets":[
+                  {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.86},
+                  {"bucketId":"gemini-daily","window":"daily","remainingFraction":0.75},
+                  {"bucketId":"gemini-5h","window":"5h","remainingFraction":0.52}
+                ]}]}
+                """), plan: "Google AI Pro")
+        #expect(snapshot.bars.map(\.id) == ["session", "day", "week"])
+        #expect(snapshot.bars.map(\.label) == ["Session", "Day", "Week"])
+        #expect(MenuTicker.lines(from: [snapshot]) == ["Gemini 5h 52%", "Gemini day 75%", "Gemini wk 86%"])
+    }
+
+    @Test func geminiUserAgentUsesFloorOrNewerInstalledVersion() {
+        #expect(GeminiSession.userAgent(installedVersion: nil) == "antigravity/\(GeminiSession.minimumClientVersion)")
+        #expect(
+            GeminiSession.userAgent(installedVersion: "2.7.0") == "antigravity/\(GeminiSession.minimumClientVersion)")
+        #expect(GeminiSession.userAgent(installedVersion: "2.30.1") == "antigravity/2.30.1")
+        #expect(GeminiSession.userAgent(installedVersion: "3.0.0") == "antigravity/3.0.0")
+        #expect(
+            GeminiSession.userAgent(installedVersion: "not-a-version")
+                == "antigravity/\(GeminiSession.minimumClientVersion)")
     }
 
     @Test(arguments: ["{}", "{\"groups\":[]}", "{\"groups\":[{\"buckets\":[{\"window\":\"5h\"}]}]}"])
