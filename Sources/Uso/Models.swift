@@ -313,3 +313,56 @@ enum MenuTicker {
         return Format.percent(max(0, 100 - bar.usedPercent))
     }
 }
+
+/// Which meters a panel row shows. Each source has defaults; Settings can pick any of its meters by bar id.
+enum RowBars {
+    static func defaults(for provider: ProviderSnapshot) -> [MeterBar] {
+        switch provider.id {
+        case "cursor":
+            let order = ["week", "auto", "included"]
+            return order.compactMap { id in provider.bars.first { $0.id == id } }
+        case "claude":
+            let order = ["session", "five", "weekly_all", "week", "api"]
+            return provider.bars
+                .filter { order.contains($0.id) }
+                .sorted { (order.firstIndex(of: $0.id) ?? 9) < (order.firstIndex(of: $1.id) ?? 9) }
+        case "gemini":
+            let order = ["session", "day", "week"]
+            return order.compactMap { id in provider.bars.first { $0.id == id } }
+        case "openai":
+            return provider.bars.sorted { lhs, rhs in
+                (lhs.label == "Week" ? 1 : 0) < (rhs.label == "Week" ? 1 : 0)
+            }
+        default:
+            return Array(provider.bars.prefix(1))
+        }
+    }
+
+    /// Every meter the row can show, defaults first.
+    static func options(for provider: ProviderSnapshot) -> [MeterBar] {
+        let first = defaults(for: provider)
+        return first + provider.bars.filter { bar in !first.contains { $0.id == bar.id } }
+    }
+
+    /// A pick that matches none of today's meters, such as a pool the service stopped sending, falls back to
+    /// the defaults instead of an empty row.
+    static func shown(for provider: ProviderSnapshot, chosen: [String]?) -> [MeterBar] {
+        guard let chosen, !chosen.isEmpty else { return defaults(for: provider) }
+        let picked = options(for: provider).filter { chosen.contains($0.id) }
+        return picked.isEmpty ? defaults(for: provider) : picked
+    }
+
+    /// The pick after turning one meter on or off. Nil means back to the defaults; the last meter stays on.
+    static func toggling(_ id: String, on: Bool, for provider: ProviderSnapshot, chosen: [String]?) -> [String]? {
+        var ids = shown(for: provider, chosen: chosen).map(\.id)
+        if on {
+            if !ids.contains(id) { ids.append(id) }
+        } else {
+            ids.removeAll { $0 == id }
+        }
+        guard !ids.isEmpty else { return chosen }
+        let order = options(for: provider).map(\.id)
+        ids.sort { (order.firstIndex(of: $0) ?? .max) < (order.firstIndex(of: $1) ?? .max) }
+        return ids == defaults(for: provider).map(\.id) ? nil : ids
+    }
+}

@@ -59,6 +59,17 @@ final class UsageStore: ObservableObject {
         savePreferences()
     }
 
+    func setRowBar(_ on: Bool, bar: String, in provider: ProviderSnapshot) {
+        preferences.rowBars[provider.id] = RowBars.toggling(
+            bar, on: on, for: provider, chosen: preferences.rowBars[provider.id])
+        savePreferences()
+    }
+
+    func resetRowBars(_ id: String) {
+        preferences.rowBars[id] = nil
+        savePreferences()
+    }
+
     func showDetectedOnly() {
         preferences.followDetection()
         savePreferences()

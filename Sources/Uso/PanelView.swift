@@ -136,7 +136,7 @@ struct PanelView: View {
                         selectedID = provider.id
                     }
                 } label: {
-                    ProviderRow(provider: provider)
+                    ProviderRow(provider: provider, chosen: store.preferences.rowBars[provider.id])
                 }
                 .buttonStyle(RowButtonStyle())
                 .focusEffectDisabled()
@@ -270,6 +270,8 @@ struct PanelView: View {
 
 private struct ProviderRow: View {
     let provider: ProviderSnapshot
+    /// Bar ids picked in Settings, or nil for the source's default meters.
+    var chosen: [String]?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -335,6 +337,7 @@ private struct ProviderRow: View {
     }
 
     private var primaryBar: MeterBar? {
+        if chosen != nil, let first = listBars.first { return first }
         if provider.id == "cursor" {
             return provider.bars.first { $0.id == "week" || $0.id == "auto" } ?? provider.bars.first
         }
@@ -342,30 +345,11 @@ private struct ProviderRow: View {
     }
 
     private var showsBarLabels: Bool {
-        provider.id == "cursor" || provider.id == "claude" || provider.id == "openai" || provider.id == "gemini"
+        chosen != nil || provider.id == "cursor" || provider.id == "claude" || provider.id == "openai"
+            || provider.id == "gemini"
     }
 
-    private var listBars: [MeterBar] {
-        switch provider.id {
-        case "cursor":
-            let order = ["week", "auto", "included"]
-            return order.compactMap { id in provider.bars.first { $0.id == id } }
-        case "claude":
-            let order = ["session", "five", "weekly_all", "week", "api"]
-            return provider.bars
-                .filter { order.contains($0.id) }
-                .sorted { (order.firstIndex(of: $0.id) ?? 9) < (order.firstIndex(of: $1.id) ?? 9) }
-        case "gemini":
-            let order = ["session", "day", "week"]
-            return order.compactMap { id in provider.bars.first { $0.id == id } }
-        case "openai":
-            return provider.bars.sorted { lhs, rhs in
-                (lhs.label == "Week" ? 1 : 0) < (rhs.label == "Week" ? 1 : 0)
-            }
-        default:
-            return Array(provider.bars.prefix(1))
-        }
-    }
+    private var listBars: [MeterBar] { RowBars.shown(for: provider, chosen: chosen) }
 
     private func barRemainder(_ bar: MeterBar) -> String {
         if bar.id == "api" { return bar.detail }

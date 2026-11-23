@@ -60,7 +60,7 @@ For Gemini, sign in to Antigravity with the Google account that has Google AI Pr
 ./scripts/install.sh
 ```
 
-That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.4-macOS-apple-silicon.zip` and `dist/Uso-1.4.4-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
+That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.5-macOS-apple-silicon.zip` and `dist/Uso-1.4.5-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
 
 Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, Cursor session, source detection, and preference persistence regression tests. Run `swift build -c release --arch arm64 --arch x86_64` to check the release build. CI runs both, plus `swift format lint --strict` and a script check, on every pull request.
 
@@ -83,6 +83,8 @@ Click the gear in the panel, or press Command-comma, to open Settings. Accounts 
 A source appears once Uso finds a session for it on this Mac. One that needs attention, such as an expired session, stays visible with what to do. Sources you don't use stay out of the panel and menu bar, so there is nothing to set up. Grok Bot needs the Grok Bot app on this Mac. Gemini needs an Antigravity sign-in, from `agy`, `Antigravity.app`, or an app such as T3 Code. OpenCode without a Go key needs local activity in the last 30 days.
 
 Each source has independent Panel and Menu bar switches. A switch you change overrides detection and is saved on this Mac. Every source still appears in Settings, so you can show it again. Show detected only clears your overrides; Check now reruns detection. Manage account opens the provider's account website.
+
+A source with more than one meter also has Panel row shows. Pick which meters its row shows when the panel opens, for example only the week, or Antigravity's Claude & GPT week next to Gemini's. The first one you pick sets the row's percentage. Every meter stays in the row's detail, and Use default goes back to the standard meters. The menu bar keeps its own rotation.
 
 General has open-at-login and opening-animation controls, plus Show all sources to show every source, found or not. macOS Reduce Motion takes priority over the animation switch. Open at login uses the macOS login item for this app.
 

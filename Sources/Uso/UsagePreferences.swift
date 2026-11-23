@@ -10,6 +10,8 @@ struct UsagePreferences: Equatable {
     /// Sources found by the last check, so the panel opens with the right rows before the next one finishes.
     var detectedProviders: Set<String> = []
     var animatesPanel = true
+    /// Bar ids each source's panel row shows instead of its defaults.
+    var rowBars: [String: [String]] = [:]
 
     func showsInPanel(_ id: String, detected: Bool) -> Bool {
         !hiddenPanelProviders.contains(id) && (detected || shownPanelProviders.contains(id))
@@ -57,7 +59,8 @@ struct UsagePreferences: Equatable {
             shownPanelProviders: Set(defaults.stringArray(forKey: "uso.shownPanelProviders") ?? []),
             shownMenuProviders: Set(defaults.stringArray(forKey: "uso.shownMenuProviders") ?? []),
             detectedProviders: Set(defaults.stringArray(forKey: "uso.detectedProviders") ?? []),
-            animatesPanel: defaults.object(forKey: "uso.animatesPanel") as? Bool ?? true
+            animatesPanel: defaults.object(forKey: "uso.animatesPanel") as? Bool ?? true,
+            rowBars: defaults.dictionary(forKey: "uso.rowBars") as? [String: [String]] ?? [:]
         )
     }
 
@@ -68,6 +71,7 @@ struct UsagePreferences: Equatable {
         defaults.set(shownMenuProviders.sorted(), forKey: "uso.shownMenuProviders")
         defaults.set(detectedProviders.sorted(), forKey: "uso.detectedProviders")
         defaults.set(animatesPanel, forKey: "uso.animatesPanel")
+        defaults.set(rowBars, forKey: "uso.rowBars")
     }
 }
 

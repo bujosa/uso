@@ -87,7 +87,8 @@ struct UsagePreferencesTests {
         defaults.set("preserved", forKey: "unrelatedPreference")
         let preferences = UsagePreferences(
             hiddenPanelProviders: ["claude"], hiddenMenuProviders: ["grok-bot"], shownPanelProviders: ["opencode"],
-            detectedProviders: ["claude", "grok-bot"], animatesPanel: false)
+            detectedProviders: ["claude", "grok-bot"], animatesPanel: false,
+            rowBars: ["gemini": ["week", "claude:week"]])
         preferences.save(to: defaults)
         let relaunched = UsagePreferences.load(from: UserDefaults(suiteName: name)!)
         #expect(relaunched == preferences)
@@ -138,5 +139,36 @@ struct UsagePreferencesTests {
             "usagePercent": 64, "grokPlanLabel": "Grok Bot Plan", "cursorPlanName": "Ultra",
         ])
         #expect(snapshot.plan == "Grok Bot Plan · Cursor Ultra")
+    }
+
+    private func antigravity() -> ProviderSnapshot {
+        ProviderSnapshot(
+            id: "gemini", name: "Gemini", plan: "Google AI Ultra", headline: "99% left",
+            bars: [
+                MeterBar(id: "session", label: "Session", usedPercent: 1, detail: ""),
+                MeterBar(id: "week", label: "Week", usedPercent: 2, detail: ""),
+                MeterBar(id: "claude:session", label: "Claude & GPT 5h", usedPercent: 30, detail: ""),
+                MeterBar(id: "claude:week", label: "Claude & GPT week", usedPercent: 40, detail: ""),
+            ], chips: [], lines: [], note: nil, warning: nil, tone: .ready)
+    }
+
+    @Test func rowShowsDefaultsUntilAMeterIsPicked() {
+        let provider = antigravity()
+        #expect(RowBars.shown(for: provider, chosen: nil).map(\.id) == ["session", "week"])
+        #expect(RowBars.options(for: provider).map(\.id) == ["session", "week", "claude:session", "claude:week"])
+        let picked = RowBars.toggling("claude:week", on: true, for: provider, chosen: nil)
+        #expect(picked == ["session", "week", "claude:week"])
+        let weekly = RowBars.toggling("session", on: false, for: provider, chosen: picked)
+        #expect(weekly == ["week", "claude:week"])
+        #expect(RowBars.shown(for: provider, chosen: weekly).map(\.label) == ["Week", "Claude & GPT week"])
+    }
+
+    @Test func rowKeepsAtLeastOneMeterAndReturnsToDefaults() {
+        let provider = antigravity()
+        #expect(RowBars.toggling("week", on: false, for: provider, chosen: ["week"]) == ["week"])
+        #expect(
+            RowBars.toggling("claude:week", on: false, for: provider, chosen: ["session", "week", "claude:week"]) == nil
+        )
+        #expect(RowBars.shown(for: provider, chosen: ["gone"]).map(\.id) == ["session", "week"])
     }
 }
