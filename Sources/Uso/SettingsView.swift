@@ -221,6 +221,33 @@ private struct AccountSettingsRow: View {
                 }
             }
             .toggleStyle(.switch).controlSize(.mini).font(.caption)
+            let options = RowBars.options(for: snapshot)
+            if options.count > 1 {
+                let shown = RowBars.shown(for: snapshot, chosen: store.preferences.rowBars[account.id])
+                HStack(spacing: 6) {
+                    Text("Panel row shows").foregroundStyle(.secondary)
+                    Menu {
+                        ForEach(options) { bar in
+                            Toggle(
+                                bar.label,
+                                isOn: Binding(
+                                    get: { shown.contains { $0.id == bar.id } },
+                                    set: { store.setRowBar($0, bar: bar.id, in: snapshot) }
+                                ))
+                        }
+                        Divider()
+                        Button("Use default") { store.resetRowBars(account.id) }
+                            .disabled(store.preferences.rowBars[account.id] == nil)
+                    } label: {
+                        Text(shown.map(\.label).joined(separator: ", ")).lineLimit(1)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .accessibilityLabel("Meters on the \(account.name) panel row")
+                    Spacer(minLength: 0)
+                }
+                .font(.caption)
+            }
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .controlBackgroundColor)))
