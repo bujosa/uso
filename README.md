@@ -60,7 +60,7 @@ For Gemini, sign in to Antigravity with the Google account that has Google AI Pr
 ./scripts/install.sh
 ```
 
-That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.6-macOS-apple-silicon.zip` and `dist/Uso-1.4.6-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
+That builds a universal release binary (arm64 and x86_64), installs `~/Applications/Uso.app`, and opens it. `./scripts/package.sh` writes the signed universal app plus one signed zip and SHA-256 checksum per chip, `dist/Uso-1.4.7-macOS-apple-silicon.zip` and `dist/Uso-1.4.7-macOS-intel.zip`, without installing anything. It stops if either architecture is missing.
 
 Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit, plan metadata, Cursor session, source detection, and preference persistence regression tests. Run `swift build -c release --arch arm64 --arch x86_64` to check the release build. CI runs both, plus `swift format lint --strict` and a script check, on every pull request.
 
@@ -68,7 +68,7 @@ Run `swift test` for quota parsing, session rotation, failed refresh, rate-limit
 
 - **X Subscription.** When Grok, Cursor, and Grok Bot report The X Subscription, the panel shows one week (the Cursor reading), plus Grok's mix and prepaid on that same row. Grok and Grok Bot stay in Settings; turn either on if you want the separate row. Legacy Cursor plans still show Grok, Grok Bot, and Cursor as their own quotas: Grok weekly credits plus product meters, Grok Bot's week or trial, Cursor Auto then included dollars.
 - **Codex.** The weekly window is on the row. A shorter window, when the account has one, sits above it.
-- **Claude.** The week is on the row. The 5-hour session appears only while Anthropic marks it active (Pro, Max, and unverified Ultra). Verified Ultra drops that bar. Included monthly API credits, extra usage, and a banked limit reset show when the account returns them. The Week bar paints Fable's part of the week in a lighter tone, with a tick at Fable's own cap (for example 50% of the week) and a legend under it. Fable's own week, and the mix across Claude Code and the rest, are inside the row.
+- **Claude.** The week is on the row. The 5-hour session appears only while Anthropic marks it active (Pro, Max, and unverified Ultra). Verified Ultra drops that bar. Included monthly API credits, extra usage, and a banked limit reset show when the account returns them. The Week bar paints Fable's part of the week in a lighter tone, with a legend under it that also gives Fable's cap (for example up to 50% of the week). Fable's own week, and the mix across Claude Code and the rest, are inside the row.
 - **Gemini.** Session and week for the Google account signed in to Antigravity (plus Day if Google reports one). Extra model groups such as Claude & GPT stay inside the row and do not enter the menu bar rotation. When Google reports no Gemini group, the panel row labels those bars Claude & GPT and leaves them out of the menu bar.
 - **OpenCode.** Local tokens for today, the last 7 days, and all time. This is sessions on this Mac, not a plan quota. An OpenCode Go key adds the official quota.
 

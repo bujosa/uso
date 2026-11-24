@@ -556,12 +556,6 @@ private struct Meter: View {
                     Capsule()
                         .fill(shareTint)
                         .frame(width: max(part > 0 ? 3 : 0, geo.size.width * part / 100))
-                    if let cap = share.capPercent {
-                        Capsule()
-                            .fill(shareTint.opacity(0.7))
-                            .frame(width: 2, height: 10)
-                            .offset(x: geo.size.width * min(cap, 100) / 100 - 1)
-                    }
                 }
             }
         }
