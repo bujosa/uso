@@ -5,6 +5,16 @@ struct MeterBar: Identifiable, Sendable, Equatable {
     var label: String
     var usedPercent: Double
     var detail: String
+    /// Part of this bar used by one model with its own allowance, such as Fable inside Claude's week.
+    var share: MeterShare? = nil
+}
+
+/// Percentages are on the parent bar's scale (0–100 of the whole window).
+struct MeterShare: Sendable, Equatable {
+    var label: String
+    var usedPercent: Double
+    /// How much of the window this model may use at most.
+    var capPercent: Double?
 }
 
 struct StatChip: Identifiable, Sendable, Equatable {

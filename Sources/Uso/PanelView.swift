@@ -310,7 +310,12 @@ private struct ProviderRow: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         }
-                        Meter(used: bar.usedPercent, accent: Accent.color(for: provider.id))
+                        Meter(
+                            used: bar.usedPercent, accent: Accent.color(for: provider.id), share: bar.share,
+                            shareColor: Accent.share(for: provider.id))
+                        if let share = bar.share {
+                            ShareLegend(share: share, color: Accent.share(for: provider.id))
+                        }
                     }
                 }
             }
@@ -432,7 +437,9 @@ private struct DetailView: View {
             if !provider.bars.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(provider.bars) { bar in
-                        DetailMeter(bar: bar, accent: Accent.color(for: provider.id))
+                        DetailMeter(
+                            bar: bar, accent: Accent.color(for: provider.id), shareColor: Accent.share(for: provider.id)
+                        )
                     }
                 }
             }
@@ -496,6 +503,7 @@ private struct DetailView: View {
 private struct DetailMeter: View {
     let bar: MeterBar
     let accent: Color
+    var shareColor: Color = .white
 
     var body: some View {
         let left = max(0, min(100, 100 - bar.usedPercent))
@@ -508,7 +516,10 @@ private struct DetailMeter: View {
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            Meter(used: bar.usedPercent, accent: accent)
+            Meter(used: bar.usedPercent, accent: accent, share: bar.share, shareColor: shareColor)
+            if let share = bar.share {
+                ShareLegend(share: share, color: shareColor)
+            }
             if !bar.detail.isEmpty {
                 Text(bar.detail)
                     .font(.caption2)
@@ -524,11 +535,14 @@ private struct Meter: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     let used: Double
     let accent: Color
+    var share: MeterShare? = nil
+    var shareColor: Color = .white
 
     private var reduceMotion: Bool { systemReduceMotion || !store.preferences.animatesPanel }
 
     var body: some View {
-        let clamped = reduceMotion || presentation.isPresented ? min(max(used, 0), 100) : 0
+        let shown = reduceMotion || presentation.isPresented
+        let clamped = shown ? min(max(used, 0), 100) : 0
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule()
@@ -536,6 +550,19 @@ private struct Meter: View {
                 Capsule()
                     .fill(fill)
                     .frame(width: max(clamped > 0 ? 4 : 0, geo.size.width * clamped / 100))
+                if let share {
+                    // The model's part of the week, painted at the start of the used part.
+                    let part = shown ? min(max(share.usedPercent, 0), clamped) : 0
+                    Capsule()
+                        .fill(shareTint)
+                        .frame(width: max(part > 0 ? 3 : 0, geo.size.width * part / 100))
+                    if let cap = share.capPercent {
+                        Capsule()
+                            .fill(shareTint.opacity(0.7))
+                            .frame(width: 2, height: 10)
+                            .offset(x: geo.size.width * min(cap, 100) / 100 - 1)
+                    }
+                }
             }
         }
         .frame(height: 6)
@@ -543,7 +570,14 @@ private struct Meter: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: used)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Used")
-        .accessibilityValue(Format.percent(used))
+        .accessibilityValue(accessibilityValue)
+    }
+
+    private var shareTint: Color { shareColor }
+
+    private var accessibilityValue: String {
+        guard let share else { return Format.percent(used) }
+        return "\(Format.percent(used)), \(share.label) \(Format.percent(share.usedPercent))"
     }
 
     private var fill: Color {
@@ -599,7 +633,37 @@ private struct GlassBackground: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
+/// "● Fable 1% of week · up to 50%" under a bar that has a model's share painted in.
+private struct ShareLegend: View {
+    let share: MeterShare
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(text).monospacedDigit()
+        }
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var text: String {
+        var line = "\(share.label) \(Format.percent(share.usedPercent)) of week"
+        if let cap = share.capPercent { line += " · up to \(Format.percent(cap))" }
+        return line
+    }
+}
+
 enum Accent {
+    /// A lighter tone of the source's color for a model's share inside a bar.
+    static func share(for id: String) -> Color {
+        switch id {
+        case "claude": return Color(red: 0.99, green: 0.82, blue: 0.58)
+        default: return Color.white.opacity(0.85)
+        }
+    }
+
     static func color(for id: String) -> Color {
         switch id {
         case "grok": return Color(red: 0.62, green: 0.54, blue: 0.42)

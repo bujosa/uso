@@ -219,6 +219,9 @@ enum QuotaParsing {
                     id: id, label: label, usedPercent: used, detail: Format.reset(Clock.date(from: row["resets_at"]))))
         }
         if let api = apiCreditsBar(from: body) { bars.append(api) }
+        if let share = weeklyShare(from: body), let index = bars.firstIndex(where: { $0.id == "weekly_all" }) {
+            bars[index].share = share
+        }
         let order = ["session", "weekly_all", "api"]
         bars.sort { (order.firstIndex(of: $0.id) ?? 3) < (order.firstIndex(of: $1.id) ?? 3) }
         guard let first = bars.first else {
@@ -242,6 +245,25 @@ enum QuotaParsing {
             headline: "\(Format.percent(max(0, 100 - first.usedPercent))) left",
             bars: bars, chips: [], lines: lines, note: nil, warning: nil, tone: .ready
         )
+    }
+
+    /// How much of the shared week a model with its own allowance used, e.g. Fable: 1% of the week, up to 50%.
+    /// `limit_index` points into `limits`, which names the model.
+    private static func weeklyShare(from body: [String: Any]) -> MeterShare? {
+        let limits = JSON.array(body["limits"])
+        for item in JSON.array(body["weekly_scoped_shares"]) {
+            guard let row = JSON.dictionary(item), let used = percent(row["used_percent_of_weekly"]) else { continue }
+            var label = "Model"
+            if let index = JSON.int64(row["limit_index"]).map(Int.init), limits.indices.contains(index),
+                let limit = JSON.dictionary(limits[index]),
+                let model = JSON.dictionary(JSON.dictionary(limit["scope"])?["model"])
+            {
+                label = JSON.string(model["display_name"]) ?? JSON.string(model["id"]) ?? label
+            }
+            let cap = percent(row["allowance_percent_of_weekly"]).flatMap { $0 > 0 && $0 < 100 ? $0 : nil }
+            return MeterShare(label: label, usedPercent: used, capPercent: cap)
+        }
+        return nil
     }
 
     /// Monthly API credits bundled with Max/Ultra. Anthropic currently ships this as an

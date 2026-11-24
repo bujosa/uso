@@ -168,6 +168,34 @@ struct QuotaParsingTests {
         #expect(MenuTicker.lines(from: [snapshot]) == ["Claude 5h 95%", "Claude wk 89%"])
     }
 
+    @Test func claudeWeekCarriesFableShareFromItsLimit() {
+        let snapshot = QuotaParsing.claude(
+            parse(
+                """
+                {"limits":[
+                  {"kind":"weekly_all","percent":13},
+                  {"kind":"weekly_scoped","percent":2,"is_active":false,"scope":{"model":{"id":null,"display_name":"Fable"}}}
+                ],"weekly_scoped_shares":[{"limit_index":1,"used_percent_of_weekly":1,"allowance_percent_of_weekly":50}]}
+                """), plan: "Ultra")
+        let week = snapshot.bars.first { $0.id == "weekly_all" }
+        #expect(week?.share == MeterShare(label: "Fable", usedPercent: 1, capPercent: 50))
+        #expect(snapshot.bars.first { $0.label == "Fable week" }?.share == nil)
+    }
+
+    @Test func claudeWeekShareToleratesMissingOrOddFields() {
+        let noIndex = QuotaParsing.claude(
+            parse(
+                """
+                {"limits":[{"kind":"weekly_all","percent":40}],
+                 "weekly_scoped_shares":[{"used_percent_of_weekly":12,"allowance_percent_of_weekly":100}]}
+                """), plan: "Max")
+        #expect(noIndex.bars.first?.share == MeterShare(label: "Model", usedPercent: 12, capPercent: nil))
+        let none = QuotaParsing.claude(
+            parse(#"{"limits":[{"kind":"weekly_all","percent":40}],"weekly_scoped_shares":[{"limit_index":0}]}"#),
+            plan: "Max")
+        #expect(none.bars.first?.share == nil)
+    }
+
     @Test func claudePartialLimitsKeepLegacySessionAndWeek() {
         let snapshot = QuotaParsing.claude(
             parse(
